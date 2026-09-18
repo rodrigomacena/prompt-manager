@@ -1521,10 +1521,9 @@ function setupPromptManagerWidget(node) {
 
     function renderRightPanel(group, prompt) {
         const right = el("div", "pm-right");
-        right.appendChild(el("div", "pm-preview-title", "Preview"));
+        right.appendChild(el("div", "pm-preview-title", "Preview Prompt"));
 
         const preview = el("div", "pm-preview-box");
-        preview.appendChild(el("div", "pm-preview-title", "Selected prompt (with prefix)"));
         const hasOverride = state.previewOverride !== null;
         if (prompt) {
             const baseText = hasOverride ? state.previewOverride : prompt.text;
