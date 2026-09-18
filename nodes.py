@@ -53,7 +53,7 @@ def _combine(prefix, text):
         return text
     if not text:
         return prefix
-    return f"{prefix}, {text}"
+    return f"{prefix}\n\n{text}"
 
 
 NODE_CLASS_MAPPINGS = {

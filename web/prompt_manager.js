@@ -27,7 +27,7 @@ function combineWithPrefix(prefix, text) {
     const t = text || "";
     if (!p) return t;
     if (!t) return p;
-    return `${p}, ${t}`;
+    return `${p}\n\n${t}`;
 }
 
 const CSS_TEXT = `

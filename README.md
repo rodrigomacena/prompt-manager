@@ -9,7 +9,7 @@ Custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) to save you
 - **Star rating (1–5)**: click the stars on a card to rate it.
 - **Add / edit / delete prompts**: a "+" card adds a prompt; double-clicking a card opens the full prompt with Edit and Delete actions. Groups can be renamed or deleted too.
 - **Output mode**: choose between `Fixed` (the manually selected prompt), `Random` (picks a prompt from the group on every run) or `Sequential` (cycles through the group's prompts in order, one per run).
-- **Prefix**: a text box always prepended to the node's output (`prefix, prompt`).
+- **Prefix**: a text box always prepended to the node's output, separated from the prompt by a blank line (`prefix\n\nprompt`).
 - **AI enrichment (OpenRouter)**: send the selected prompt to any OpenRouter model to expand it, with an optional custom instruction (e.g. "expand into 2 paragraphs, add more environment detail"). The result previews before you decide to save it over the stored prompt.
 - **Backup & restore**: a gear icon next to the group controls backs up or restores every group at once as a `.json` file, and holds the OpenRouter API key / model settings.
 
