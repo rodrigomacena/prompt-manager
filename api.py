@@ -63,7 +63,9 @@ def setup_routes():
         text = (data.get("text") or "").strip()
         if not text:
             return _err("Prompt text is required")
-        prompt = storage.add_prompt(request.match_info["group_id"], text, data.get("rating", 0))
+        prompt = storage.add_prompt(
+            request.match_info["group_id"], text, data.get("rating", 0), data.get("title", "")
+        )
         if prompt is None:
             return _err("Group not found", 404)
         return web.json_response(prompt)
@@ -78,6 +80,7 @@ def setup_routes():
             request.match_info["prompt_id"],
             text=data.get("text"),
             rating=data.get("rating"),
+            title=data.get("title") if "title" in data else None,
         )
         if prompt is None:
             return _err("Prompt not found", 404)

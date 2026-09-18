@@ -95,13 +95,18 @@ def delete_group(group_id: str) -> bool:
         return changed
 
 
-def add_prompt(group_id: str, text: str, rating: int = 0) -> Optional[Dict[str, Any]]:
+def add_prompt(group_id: str, text: str, rating: int = 0, title: str = "") -> Optional[Dict[str, Any]]:
     with _lock:
         db = _read_raw()
         group = get_group(db, group_id)
         if group is None:
             return None
-        prompt = {"id": uuid.uuid4().hex, "text": text, "rating": max(0, min(5, int(rating)))}
+        prompt = {
+            "id": uuid.uuid4().hex,
+            "title": (title or "").strip(),
+            "text": text,
+            "rating": max(0, min(5, int(rating))),
+        }
         group["prompts"].append(prompt)
         _write_raw(db)
         return prompt
@@ -112,6 +117,7 @@ def update_prompt(
     prompt_id: str,
     text: Optional[str] = None,
     rating: Optional[int] = None,
+    title: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     with _lock:
         db = _read_raw()
@@ -124,6 +130,8 @@ def update_prompt(
                     p["text"] = text
                 if rating is not None:
                     p["rating"] = max(0, min(5, int(rating)))
+                if title is not None:
+                    p["title"] = title.strip()
                 _write_raw(db)
                 return p
         return None
@@ -163,6 +171,7 @@ def _import_group(db: Dict[str, Any], data: Dict[str, Any], overwrite: bool) -> 
     imported_prompts = [
         {
             "id": uuid.uuid4().hex,
+            "title": (p.get("title") or "").strip(),
             "text": p.get("text", ""),
             "rating": max(0, min(5, int(p.get("rating", 0) or 0))),
         }
@@ -194,7 +203,10 @@ def backup_all() -> Dict[str, Any]:
         "groups": [
             {
                 "name": g["name"],
-                "prompts": [{"text": p["text"], "rating": p["rating"]} for p in g["prompts"]],
+                "prompts": [
+                    {"title": p.get("title", ""), "text": p["text"], "rating": p["rating"]}
+                    for p in g["prompts"]
+                ],
             }
             for g in db["groups"]
         ]

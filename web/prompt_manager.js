@@ -88,9 +88,6 @@ const CSS_TEXT = `
 .pm-settings-btn:hover { opacity: 1; }
 .pm-settings-menu {
     position: absolute;
-    top: 100%;
-    right: 0;
-    margin-top: 4px;
     background: var(--comfy-menu-bg, #2b2b2b);
     border: 1px solid var(--border-color, #444);
     border-radius: 4px;
@@ -226,7 +223,7 @@ const CSS_TEXT = `
     flex: 1;
     display: flex;
     flex-direction: row;
-    gap: 6px;
+    gap: 16px;
     min-height: 0;
 }
 .pm-content {
@@ -382,6 +379,14 @@ const CSS_TEXT = `
     border-color: var(--p-primary-color, #5b8dee);
     box-shadow: 0 0 0 1px var(--p-primary-color, #5b8dee) inset;
 }
+.pm-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--input-text, #ddd);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .pm-card-text {
     font-size: 11px;
     line-height: 1.3;
@@ -392,6 +397,12 @@ const CSS_TEXT = `
     word-break: break-word;
     white-space: pre-wrap;
     color: var(--input-text, #ddd);
+}
+.pm-card-text.pm-card-text-with-title {
+    -webkit-line-clamp: 2;
+    font-size: 10px;
+    color: var(--descrip-text, #999);
+    margin-top: 2px;
 }
 .pm-stars {
     display: flex;
@@ -435,6 +446,16 @@ const CSS_TEXT = `
     border: 1px solid var(--border-color, #444);
     border-radius: 4px;
     padding: 4px;
+    font-size: 12px;
+    font-family: inherit;
+}
+.pm-editor-title {
+    box-sizing: border-box;
+    background: var(--comfy-input-bg, #232323);
+    color: var(--input-text, #ddd);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    padding: 4px 6px;
     font-size: 12px;
     font-family: inherit;
 }
@@ -539,6 +560,11 @@ const CSS_TEXT = `
 }
 .pm-view-title {
     font-size: 13px;
+    font-weight: 600;
+    color: var(--input-text, #ddd);
+}
+.pm-view-subtitle {
+    font-size: 12px;
     font-weight: 600;
     color: var(--input-text, #ddd);
 }
@@ -787,6 +813,9 @@ function setupPromptManagerWidget(node) {
             header.appendChild(closeBtn);
             box.appendChild(header);
 
+            if (prompt.title) {
+                box.appendChild(el("div", "pm-view-subtitle", prompt.title));
+            }
             box.appendChild(el("div", "pm-view-text", prompt.text));
 
             const starsRow = el("div", "pm-stars");
@@ -831,6 +860,13 @@ function setupPromptManagerWidget(node) {
 
             box.appendChild(el("div", "pm-view-title", "Edit prompt"));
 
+            const titleInput = document.createElement("input");
+            titleInput.type = "text";
+            titleInput.className = "pm-editor-title";
+            titleInput.placeholder = "Title (optional)";
+            titleInput.value = prompt.title || "";
+            box.appendChild(titleInput);
+
             const textarea = document.createElement("textarea");
             textarea.className = "pm-view-textarea";
             textarea.value = prompt.text;
@@ -857,9 +893,11 @@ function setupPromptManagerWidget(node) {
                     textarea.focus();
                     return;
                 }
-                await updatePrompt(group, prompt, text, draftRating);
+                const title = titleInput.value.trim();
+                await updatePrompt(group, prompt, text, draftRating, title);
                 prompt.text = text;
                 prompt.rating = draftRating;
+                prompt.title = title;
                 renderView();
             });
             actions.appendChild(cancelBtn);
@@ -1158,11 +1196,13 @@ function setupPromptManagerWidget(node) {
         return true;
     }
 
-    async function updatePrompt(group, prompt, text, rating) {
+    async function updatePrompt(group, prompt, text, rating, title) {
+        const body = { text, rating };
+        if (title !== undefined) body.title = title;
         await api.fetchApi(`/prompt_manager/groups/${group.id}/prompts/${prompt.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, rating }),
+            body: JSON.stringify(body),
         });
         await loadGroups(group.id);
     }
@@ -1177,11 +1217,11 @@ function setupPromptManagerWidget(node) {
         await loadGroups(group.id);
     }
 
-    async function addPrompt(group, text, rating) {
+    async function addPrompt(group, text, rating, title) {
         const res = await api.fetchApi(`/prompt_manager/groups/${group.id}/prompts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, rating }),
+            body: JSON.stringify({ text, rating, title: title || "" }),
         });
         const prompt = await res.json();
         await loadGroups(group.id);
@@ -1232,14 +1272,19 @@ function setupPromptManagerWidget(node) {
 
     function renderCard(group, prompt) {
         const card = el("div", "pm-card" + (prompt.id === state.promptId ? " pm-selected" : ""));
-        card.title = prompt.text;
+        card.title = prompt.title ? `${prompt.title}\n\n${prompt.text}` : prompt.text;
         card.addEventListener("click", () => selectPrompt(prompt));
         card.addEventListener("dblclick", (ev) => {
             ev.stopPropagation();
             showPromptViewModal(group, prompt);
         });
 
-        card.appendChild(el("div", "pm-card-text", prompt.text));
+        if (prompt.title) {
+            card.appendChild(el("div", "pm-card-title", prompt.title));
+            card.appendChild(el("div", "pm-card-text pm-card-text-with-title", prompt.text));
+        } else {
+            card.appendChild(el("div", "pm-card-text", prompt.text));
+        }
 
         const stars = el("div", "pm-stars");
         renderStars(stars, prompt.rating, (r) => rate(group, prompt, r));
@@ -1260,6 +1305,12 @@ function setupPromptManagerWidget(node) {
 
     function renderEditor(group) {
         const panel = el("div", "pm-editor");
+        const titleInput = document.createElement("input");
+        titleInput.type = "text";
+        titleInput.className = "pm-editor-title";
+        titleInput.placeholder = "Title (optional)";
+        panel.appendChild(titleInput);
+
         const textarea = document.createElement("textarea");
         textarea.placeholder = "Type the prompt...";
         panel.appendChild(textarea);
@@ -1290,7 +1341,7 @@ function setupPromptManagerWidget(node) {
                 textarea.focus();
                 return;
             }
-            await addPrompt(group, text, draftRating);
+            await addPrompt(group, text, draftRating, titleInput.value.trim());
         });
         buttons.appendChild(cancelBtn);
         buttons.appendChild(saveBtn);
@@ -1471,6 +1522,7 @@ function setupPromptManagerWidget(node) {
 
     function renderRightPanel(group, prompt) {
         const right = el("div", "pm-right");
+        right.appendChild(el("div", "pm-preview-title", "Preview"));
 
         const preview = el("div", "pm-preview-box");
         preview.appendChild(el("div", "pm-preview-title", "Selected prompt (with prefix)"));
@@ -1540,6 +1592,14 @@ function setupPromptManagerWidget(node) {
     function render() {
         body.innerHTML = "";
 
+        const main = el("div", "pm-main");
+        main.appendChild(renderImageToPromptPanel());
+
+        const content = el("div", "pm-content");
+        content.appendChild(el("div", "pm-preview-title", "Prompt Manager"));
+        const group = currentGroup();
+        const selectedPrompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
+
         const groupRow = el("div", "pm-row");
         const select = document.createElement("select");
         select.className = "pm-select";
@@ -1589,11 +1649,7 @@ function setupPromptManagerWidget(node) {
         });
         groupRow.appendChild(settingsBtn);
 
-        if (state.settingsMenuOpen) {
-            groupRow.appendChild(renderSettingsMenu());
-        }
-
-        body.appendChild(groupRow);
+        content.appendChild(groupRow);
 
         const modeBar = el("div", "pm-mode-bar");
         for (const mode of [MODE_FIXED, MODE_RANDOM, MODE_SEQUENTIAL]) {
@@ -1601,14 +1657,7 @@ function setupPromptManagerWidget(node) {
             btn.addEventListener("click", () => setMode(mode));
             modeBar.appendChild(btn);
         }
-        body.appendChild(modeBar);
-
-        const main = el("div", "pm-main");
-        main.appendChild(renderImageToPromptPanel());
-
-        const content = el("div", "pm-content");
-        const group = currentGroup();
-        const selectedPrompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
+        content.appendChild(modeBar);
 
         const prefixRow = el("div", "pm-prefix-row");
         prefixRow.appendChild(el("div", "pm-prefix-label", "Prefix (always inserted before the prompt)"));
@@ -1647,6 +1696,16 @@ function setupPromptManagerWidget(node) {
         main.appendChild(renderRightPanel(group, selectedPrompt));
 
         body.appendChild(main);
+
+        root.querySelectorAll(".pm-settings-menu").forEach((m) => m.remove());
+        if (state.settingsMenuOpen) {
+            const menu = renderSettingsMenu();
+            const rootRect = root.getBoundingClientRect();
+            const btnRect = settingsBtn.getBoundingClientRect();
+            menu.style.top = `${btnRect.bottom - rootRect.top + 4}px`;
+            menu.style.right = `${rootRect.right - btnRect.right}px`;
+            root.appendChild(menu);
+        }
     }
 
     document.addEventListener("click", (ev) => {
