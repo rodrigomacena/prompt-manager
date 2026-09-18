@@ -4,7 +4,7 @@ from aiohttp import web
 from server import PromptServer
 
 from . import storage
-from .openrouter import OpenRouterError, enrich_prompt, list_models
+from .openrouter import OpenRouterError, describe_image, enrich_prompt, list_models
 
 
 def _err(message: str, status: int = 400):
@@ -148,9 +148,29 @@ def setup_routes():
         api_key = settings.get("api_key")
         if not api_key:
             return _err("Set your OpenRouter API key in settings before enriching.", 400)
-        model = settings.get("model") or storage.DEFAULT_MODEL
+        model = (data.get("model") or "").strip() or settings.get("model") or storage.DEFAULT_MODEL
         try:
             enriched = await enrich_prompt(api_key, model, text, instructions)
         except OpenRouterError as e:
             return _err(str(e), 502)
         return web.json_response({"text": enriched})
+
+    @routes.post("/prompt_manager/image-to-prompt")
+    async def pm_image_to_prompt(request):
+        data = await _json_body(request)
+        if data is None:
+            return _err("Invalid JSON")
+        image = data.get("image") or ""
+        if not image.startswith("data:image/"):
+            return _err("A valid image is required")
+        instructions = data.get("instructions") or ""
+        settings = storage.get_settings()
+        api_key = settings.get("api_key")
+        if not api_key:
+            return _err("Set your OpenRouter API key in settings before using this feature.", 400)
+        model = (data.get("model") or "").strip() or storage.DEFAULT_MODEL
+        try:
+            text = await describe_image(api_key, model, image, instructions)
+        except OpenRouterError as e:
+            return _err(str(e), 502)
+        return web.json_response({"text": text})

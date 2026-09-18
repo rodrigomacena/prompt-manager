@@ -14,12 +14,47 @@ const MODE_LABELS = {
 };
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_VISION_MODEL = "openai/gpt-4o-mini";
+const MAX_IMAGE_DIMENSION = 1536;
 
 function modelOptionLabel(m) {
     const namePart = m.name && m.name !== m.id ? m.name : m.id;
     const pricePart = m.price ? ` — ${m.price}` : "";
     const idPart = m.name && m.name !== m.id ? ` (${m.id})` : "";
     return `${namePart}${pricePart}${idPart}`;
+}
+
+function buildModelSelect(models, currentValue) {
+    const select = document.createElement("select");
+    if (!models.some((m) => m.id === currentValue)) {
+        const opt = document.createElement("option");
+        opt.value = currentValue;
+        opt.textContent = currentValue;
+        select.appendChild(opt);
+    }
+    for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = modelOptionLabel(m);
+        if (m.id === currentValue) opt.selected = true;
+        select.appendChild(opt);
+    }
+    return select;
+}
+
+async function fileToResizedDataUrl(file, maxDim = MAX_IMAGE_DIMENSION, quality = 0.85) {
+    const bitmap = await createImageBitmap(file);
+    let { width, height } = bitmap;
+    if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", quality);
 }
 
 function combineWithPrefix(prefix, text) {
@@ -540,6 +575,80 @@ const CSS_TEXT = `
     overflow-y: auto;
     user-select: text;
 }
+.pm-img2prompt {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    padding: 6px;
+    background: rgba(0,0,0,0.15);
+    overflow-y: auto;
+}
+.pm-img2prompt-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 110px;
+    max-height: 150px;
+    border: 1px dashed var(--border-color, #555);
+    border-radius: 4px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.2);
+    flex: 0 0 auto;
+}
+.pm-img2prompt-preview img {
+    max-width: 100%;
+    max-height: 150px;
+    object-fit: contain;
+    display: block;
+}
+.pm-img2prompt-preview-empty {
+    color: var(--descrip-text, #777);
+    font-size: 11px;
+    font-style: italic;
+    text-align: center;
+    padding: 10px;
+}
+.pm-img2prompt-buttons {
+    display: flex;
+    gap: 6px;
+}
+.pm-img2prompt-buttons button { flex: 1; }
+.pm-img2prompt-result {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--input-text, #ddd);
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    padding: 6px;
+    max-height: 140px;
+    overflow-y: auto;
+}
+.pm-img2prompt-error {
+    font-size: 10px;
+    color: #e57373;
+}
+.pm-img2prompt-divider {
+    height: 1px;
+    background: var(--border-color, #3a3a3a);
+    margin: 2px 0;
+}
+.pm-model-select {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--comfy-input-bg, #232323);
+    color: var(--input-text, #ddd);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 11px;
+}
 `;
 
 let stylesInjected = false;
@@ -578,6 +687,8 @@ function setupPromptManagerWidget(node) {
 
     if (!node.properties) node.properties = {};
     if (node.properties.enrichInstructions === undefined) node.properties.enrichInstructions = "";
+    if (node.properties.img2promptModel === undefined) node.properties.img2promptModel = DEFAULT_VISION_MODEL;
+    if (node.properties.img2promptInstructions === undefined) node.properties.img2promptInstructions = "";
 
     const state = {
         groups: [],
@@ -592,6 +703,17 @@ function setupPromptManagerWidget(node) {
         models: { loading: false, loaded: false, list: [] },
         enrich: { loading: false, error: "", result: "" },
         previewOverride: null,
+        img2prompt: {
+            imageDataUrl: null,
+            model: node.properties.img2promptModel || DEFAULT_VISION_MODEL,
+            instructions: node.properties.img2promptInstructions || "",
+            loading: false,
+            error: "",
+            result: "",
+            adjustText: "",
+            adjusting: false,
+            adjustError: "",
+        },
     };
 
     const root = el("div", "pm-root");
@@ -788,6 +910,25 @@ function setupPromptManagerWidget(node) {
     });
     root.appendChild(fileInput);
 
+    const imageFileInput = el("input");
+    imageFileInput.type = "file";
+    imageFileInput.accept = "image/*";
+    imageFileInput.style.display = "none";
+    imageFileInput.addEventListener("change", async () => {
+        const file = imageFileInput.files && imageFileInput.files[0];
+        imageFileInput.value = "";
+        if (!file) return;
+        try {
+            state.img2prompt.imageDataUrl = await fileToResizedDataUrl(file);
+            state.img2prompt.error = "";
+        } catch (e) {
+            console.error("PromptManager: failed to read image file", e);
+            state.img2prompt.error = "Could not read that image file.";
+        }
+        render();
+    });
+    root.appendChild(imageFileInput);
+
     function currentGroup() {
         return state.groups.find((g) => g.id === state.groupId) || null;
     }
@@ -892,6 +1033,91 @@ function setupPromptManagerWidget(node) {
         } catch (e) {
             state.enrich = { loading: false, error: e.message || String(e), result: "" };
         }
+        render();
+    }
+
+    async function pasteImageFromClipboard() {
+        state.img2prompt.error = "";
+        try {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                const imageType = item.types.find((t) => t.startsWith("image/"));
+                if (imageType) {
+                    const blob = await item.getType(imageType);
+                    state.img2prompt.imageDataUrl = await fileToResizedDataUrl(blob);
+                    render();
+                    return;
+                }
+            }
+            state.img2prompt.error = "No image found on the clipboard.";
+        } catch (e) {
+            console.error("PromptManager: failed to paste image", e);
+            state.img2prompt.error = "Could not read the clipboard. Try the Upload button instead.";
+        }
+        render();
+    }
+
+    async function convertImageToPrompt() {
+        const img = state.img2prompt;
+        if (!img.imageDataUrl || img.loading) return;
+
+        state.img2prompt.loading = true;
+        state.img2prompt.error = "";
+        state.img2prompt.result = "";
+        render();
+        try {
+            const res = await api.fetchApi("/prompt_manager/image-to-prompt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    image: state.img2prompt.imageDataUrl,
+                    model: state.img2prompt.model,
+                    instructions: state.img2prompt.instructions,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to convert the image.");
+            state.img2prompt.result = data.text;
+        } catch (e) {
+            state.img2prompt.error = e.message || String(e);
+        }
+        state.img2prompt.loading = false;
+        render();
+    }
+
+    async function applyImageAdjustment() {
+        const img = state.img2prompt;
+        const instructions = (img.adjustText || "").trim();
+        if (!img.result || !instructions || img.adjusting) return;
+
+        state.img2prompt.adjusting = true;
+        state.img2prompt.adjustError = "";
+        render();
+        try {
+            const res = await api.fetchApi("/prompt_manager/enrich", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: img.result, instructions, model: img.model }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to adjust the prompt.");
+            state.img2prompt.result = data.text;
+            state.img2prompt.adjustText = "";
+        } catch (e) {
+            state.img2prompt.adjustError = e.message || String(e);
+        }
+        state.img2prompt.adjusting = false;
+        render();
+    }
+
+    function clearImageToPrompt() {
+        state.img2prompt.imageDataUrl = null;
+        state.img2prompt.result = "";
+        state.img2prompt.error = "";
+        state.img2prompt.adjustText = "";
+        state.img2prompt.adjustError = "";
+        state.img2prompt.loading = false;
+        state.img2prompt.adjusting = false;
         render();
     }
 
@@ -1114,20 +1340,7 @@ function setupPromptManagerWidget(node) {
         if (state.models.loading && !state.models.list.length) {
             modelField.appendChild(el("div", "pm-settings-hint", "Loading models..."));
         } else {
-            modelSelect = document.createElement("select");
-            if (!state.models.list.some((m) => m.id === currentModel)) {
-                const opt = document.createElement("option");
-                opt.value = currentModel;
-                opt.textContent = currentModel;
-                modelSelect.appendChild(opt);
-            }
-            for (const m of state.models.list) {
-                const opt = document.createElement("option");
-                opt.value = m.id;
-                opt.textContent = modelOptionLabel(m);
-                if (m.id === currentModel) opt.selected = true;
-                modelSelect.appendChild(opt);
-            }
+            modelSelect = buildModelSelect(state.models.list, currentModel);
             modelField.appendChild(modelSelect);
         }
         menu.appendChild(modelField);
@@ -1145,6 +1358,94 @@ function setupPromptManagerWidget(node) {
         menu.appendChild(saveSettingsBtn);
 
         return menu;
+    }
+
+    function renderImageToPromptPanel() {
+        const img = state.img2prompt;
+        const panel = el("div", "pm-img2prompt");
+        panel.appendChild(el("div", "pm-preview-title", "Image to prompt"));
+
+        const preview = el("div", "pm-img2prompt-preview");
+        if (img.imageDataUrl) {
+            const image = document.createElement("img");
+            image.src = img.imageDataUrl;
+            preview.appendChild(image);
+        } else {
+            preview.appendChild(el("div", "pm-img2prompt-preview-empty", "Upload or paste an image to get started. It is only sent to the AI, never saved."));
+        }
+        panel.appendChild(preview);
+
+        const uploadRow = el("div", "pm-img2prompt-buttons");
+        const uploadBtn = el("button", "pm-secondary-btn", "⬆ Upload");
+        uploadBtn.addEventListener("click", () => imageFileInput.click());
+        const pasteBtn = el("button", "pm-secondary-btn", "📋 Paste");
+        pasteBtn.addEventListener("click", pasteImageFromClipboard);
+        uploadRow.appendChild(uploadBtn);
+        uploadRow.appendChild(pasteBtn);
+        panel.appendChild(uploadRow);
+
+        if (img.error) {
+            panel.appendChild(el("div", "pm-img2prompt-error", img.error));
+        }
+
+        const convertBtn = el("button", "pm-primary-btn", img.loading ? "Converting..." : "Convert to prompt");
+        convertBtn.disabled = !img.imageDataUrl || img.loading;
+        convertBtn.addEventListener("click", convertImageToPrompt);
+        panel.appendChild(convertBtn);
+
+        panel.appendChild(el("div", "pm-prefix-label", "Model"));
+        const modelSelect = buildModelSelect(state.models.list.filter((m) => m.vision), img.model);
+        modelSelect.className = "pm-model-select";
+        modelSelect.addEventListener("change", () => {
+            state.img2prompt.model = modelSelect.value;
+            node.properties.img2promptModel = modelSelect.value;
+        });
+        panel.appendChild(modelSelect);
+
+        const instructionsField = document.createElement("textarea");
+        instructionsField.className = "pm-enrich-instructions";
+        instructionsField.placeholder = "Instructions (optional). E.g.: describe only the scenery in this image.";
+        instructionsField.rows = 2;
+        instructionsField.value = img.instructions;
+        instructionsField.addEventListener("input", () => {
+            state.img2prompt.instructions = instructionsField.value;
+            node.properties.img2promptInstructions = instructionsField.value;
+        });
+        panel.appendChild(instructionsField);
+
+        if (img.result) {
+            panel.appendChild(el("div", "pm-img2prompt-divider"));
+            panel.appendChild(el("div", "pm-preview-title", "Result"));
+            panel.appendChild(el("div", "pm-img2prompt-result", img.result));
+
+            let adjustBtn;
+            const adjustField = document.createElement("textarea");
+            adjustField.className = "pm-enrich-instructions";
+            adjustField.placeholder = "Ask the AI to fix something. E.g.: describe the light in more detail, add a dog...";
+            adjustField.rows = 2;
+            adjustField.value = img.adjustText;
+            adjustField.addEventListener("input", () => {
+                state.img2prompt.adjustText = adjustField.value;
+                if (adjustBtn) adjustBtn.disabled = !adjustField.value.trim() || img.adjusting;
+            });
+            panel.appendChild(adjustField);
+
+            if (img.adjustError) {
+                panel.appendChild(el("div", "pm-img2prompt-error", img.adjustError));
+            }
+
+            adjustBtn = el("button", "pm-secondary-btn", img.adjusting ? "Adjusting..." : "Apply adjustment");
+            adjustBtn.disabled = !img.adjustText.trim() || img.adjusting;
+            adjustBtn.addEventListener("click", applyImageAdjustment);
+            panel.appendChild(adjustBtn);
+        }
+
+        panel.appendChild(el("div", "pm-img2prompt-divider"));
+        const clearBtn = el("button", "pm-secondary-btn", "Clear image & text");
+        clearBtn.addEventListener("click", clearImageToPrompt);
+        panel.appendChild(clearBtn);
+
+        return panel;
     }
 
     function renderRightPanel(group, prompt) {
@@ -1297,6 +1598,7 @@ function setupPromptManagerWidget(node) {
         body.appendChild(prefixRow);
 
         const main = el("div", "pm-main");
+        main.appendChild(renderImageToPromptPanel());
 
         const content = el("div", "pm-content");
         const group = currentGroup();
@@ -1338,12 +1640,13 @@ function setupPromptManagerWidget(node) {
         hideOnZoom: false,
     });
 
-    if (node.size[0] < 640) node.size[0] = 640;
-    if (node.size[1] < 530) node.size[1] = 530;
+    if (node.size[0] < 920) node.size[0] = 920;
+    if (node.size[1] < 560) node.size[1] = 560;
 
     syncWidgets();
     loadGroups(state.groupId || undefined);
     loadSettings();
+    loadModels();
 }
 
 app.registerExtension({
