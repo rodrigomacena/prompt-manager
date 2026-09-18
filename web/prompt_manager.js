@@ -780,8 +780,14 @@ function setupPromptManagerWidget(node) {
                 });
             }
 
+            let overlayMouseDownTarget = null;
+            overlay.addEventListener("mousedown", (ev) => {
+                overlayMouseDownTarget = ev.target;
+            });
             overlay.addEventListener("click", (ev) => {
-                if (ev.target === overlay) finish(mode === "prompt" ? null : mode === "alert");
+                if (ev.target === overlay && overlayMouseDownTarget === overlay) {
+                    finish(mode === "prompt" ? null : mode === "alert");
+                }
             });
 
             overlay.appendChild(box);
@@ -906,8 +912,12 @@ function setupPromptManagerWidget(node) {
             setTimeout(() => textarea.focus(), 0);
         }
 
+        let overlayMouseDownTarget = null;
+        overlay.addEventListener("mousedown", (ev) => {
+            overlayMouseDownTarget = ev.target;
+        });
         overlay.addEventListener("click", (ev) => {
-            if (ev.target === overlay) close();
+            if (ev.target === overlay && overlayMouseDownTarget === overlay) close();
         });
 
         root.appendChild(overlay);
