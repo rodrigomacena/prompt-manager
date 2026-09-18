@@ -10,11 +10,12 @@ _MODELS_CACHE_TTL = 3600
 
 _SYSTEM_PROMPT = (
     "You are an expert prompt engineer for AI image generation. Rewrite the user's "
-    "prompt into a richer, more vivid version: add concrete visual detail (lighting, "
-    "composition, camera/lens, style, textures, mood) while preserving its original "
-    "subject and intent. Keep it as a single comma-separated prompt suitable for an "
-    "image model. Respond with ONLY the improved prompt text, no explanations, no "
-    "quotes, no markdown."
+    "prompt into a richer, more detailed version: add concrete visual detail (lighting, "
+    "composition, camera/lens, style, textures, mood, environment) while preserving its "
+    "original subject and intent. If the user provides additional instructions (about "
+    "length, structure, focus, etc.), follow them exactly, even if that means deviating "
+    "from the default single-line, comma-separated style. Respond with ONLY the "
+    "improved prompt text, no explanations, no quotes, no markdown."
 )
 
 
@@ -41,7 +42,7 @@ async def list_models() -> list:
                 if resp.status != 200:
                     raise OpenRouterError(f"HTTP {resp.status}")
         except aiohttp.ClientError as e:
-            raise OpenRouterError(f"Falha de conexão com o OpenRouter: {e}")
+            raise OpenRouterError(f"Failed to connect to OpenRouter: {e}")
 
     models = [
         {"id": m["id"], "name": m.get("name") or m["id"]}
@@ -54,7 +55,11 @@ async def list_models() -> list:
     return models
 
 
-async def enrich_prompt(api_key: str, model: str, text: str) -> str:
+async def enrich_prompt(api_key: str, model: str, text: str, instructions: str = "") -> str:
+    user_content = text
+    if instructions.strip():
+        user_content = f"Additional instructions: {instructions.strip()}\n\nOriginal prompt: {text}"
+
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(
@@ -67,7 +72,7 @@ async def enrich_prompt(api_key: str, model: str, text: str) -> str:
                     "model": model,
                     "messages": [
                         {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user", "content": text},
+                        {"role": "user", "content": user_content},
                     ],
                 },
                 timeout=aiohttp.ClientTimeout(total=60),
@@ -79,6 +84,6 @@ async def enrich_prompt(api_key: str, model: str, text: str) -> str:
                 try:
                     return data["choices"][0]["message"]["content"].strip()
                 except (KeyError, IndexError, TypeError):
-                    raise OpenRouterError("Resposta inesperada do OpenRouter.")
+                    raise OpenRouterError("Unexpected response from OpenRouter.")
         except aiohttp.ClientError as e:
-            raise OpenRouterError(f"Falha de conexão com o OpenRouter: {e}")
+            raise OpenRouterError(f"Failed to connect to OpenRouter: {e}")

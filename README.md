@@ -1,51 +1,61 @@
 # Prompt Manager
 
-Nó customizado para o [ComfyUI](https://github.com/comfyanonymous/ComfyUI) para guardar seus prompts favoritos organizados em grupos, revisá-los visualmente em um grid, avaliá-los com estrelas e reutilizá-los como saída de texto no seu workflow.
+Custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) to save your favorite prompts organized into groups, browse them visually in a grid, rate them with stars, optionally enrich them with AI, and reuse them as a text output in your workflow.
 
-## Funcionalidades
+## Features
 
-- **Grupos de prompts**: organize prompts em grupos nomeados (ex.: "Retrato", "Paisagem").
-- **Grid visual**: os prompts de um grupo aparecem como blocos em grade, com o texto e a avaliação em estrelas.
-- **Avaliação em estrelas (1 a 5)**: clique nas estrelas de cada bloco para avaliar.
-- **Adicionar / excluir prompts**: botão "+" para adicionar; cada bloco tem um botão de exclusão. Grupos também podem ser excluídos.
-- **Modo de saída**: escolha entre `Escolhido` (o prompt selecionado manualmente), `Aleatório` (sorteia um prompt do grupo a cada execução) ou `Sequencial` (percorre os prompts do grupo em ordem, avançando a cada execução).
-- **Backup e restauração por grupo**: um botão discreto (💾) no topo do nó permite baixar um grupo como arquivo `.json` ou restaurar um grupo a partir de um backup.
+- **Prompt groups**: organize prompts into named groups (e.g. "Portrait", "Landscape").
+- **Visual grid**: a group's prompts show up as cards in a grid, ranked by star rating, with a live full-text preview panel on the right.
+- **Star rating (1–5)**: click the stars on a card to rate it.
+- **Add / edit / delete prompts**: a "+" card adds a prompt; double-clicking a card opens the full prompt with Edit and Delete actions. Groups can be renamed or deleted too.
+- **Output mode**: choose between `Fixed` (the manually selected prompt), `Random` (picks a prompt from the group on every run) or `Sequential` (cycles through the group's prompts in order, one per run).
+- **Prefix**: a text box always prepended to the node's output (`prefix, prompt`).
+- **AI enrichment (OpenRouter)**: send the selected prompt to any OpenRouter model to expand it, with an optional custom instruction (e.g. "expand into 2 paragraphs, add more environment detail"). The result previews before you decide to save it over the stored prompt.
+- **Backup & restore**: a gear icon next to the group controls backs up or restores every group at once as a `.json` file, and holds the OpenRouter API key / model settings.
 
-## Instalação
+## Installation
 
-1. Copie (ou clone) esta pasta para dentro de `ComfyUI/custom_nodes/`:
+1. Copy (or clone) this folder into `ComfyUI/custom_nodes/`:
 
    ```bash
    cd ComfyUI/custom_nodes
    git clone https://github.com/rodrigomacena/prompt-manager.git
    ```
 
-2. Reinicie o ComfyUI.
-3. O nó aparece no menu como **Prompt Manager** (categoria `utils/prompt`).
+2. Restart ComfyUI.
+3. The node appears in the menu as **Prompt Manager** (category `utils/prompt`).
 
-Não há dependências Python além das já incluídas no ComfyUI (`aiohttp`).
+No extra Python dependencies beyond what ComfyUI already ships (`aiohttp`).
 
-## Armazenamento
+## Storage
 
-Os grupos e prompts ficam salvos em `user/default/PromptManager/prompt_manager_db.json` dentro da pasta de dados do ComfyUI (via `folder_paths.get_user_directory()`), então persistem entre atualizações do nó. Os backups por grupo são arquivos `.json` independentes, no formato:
+Groups and prompts are saved to `user/default/PromptManager/prompt_manager_db.json` inside ComfyUI's data directory (via `folder_paths.get_user_directory()`), so they persist across node updates. The OpenRouter API key is stored there too, locally, and is never echoed back by the settings endpoint. A full backup is a standalone `.json` file:
 
 ```json
 {
-  "name": "Retrato",
-  "prompts": [
-    { "text": "closeup portrait, soft light...", "rating": 5 }
+  "groups": [
+    {
+      "name": "Portrait",
+      "prompts": [
+        { "text": "closeup portrait, soft light...", "rating": 5 }
+      ]
+    }
   ]
 }
 ```
 
-## Saída
+## Output
 
-O nó tem uma única saída `STRING` com o texto do prompt resultante do modo escolhido.
+The node has a single `STRING` output with the prompt text produced by the selected mode (with the prefix prepended, if set).
 
-## Status de testes
+## AI enrichment
 
-Testado manualmente em uma instância real do ComfyUI Desktop (nó carregado sem erros). Fluxos validados: criar/renomear/excluir grupo, adicionar/avaliar/excluir prompt, seleção de prompt, troca entre os modos Escolhido/Aleatório/Sequencial (sincronização com os widgets internos que o Python lê), backup (download do JSON do grupo) e restauração/ciclo sequencial (validados na camada de armazenamento).
+Set an OpenRouter API key and pick a model from the gear menu (the full OpenRouter model catalog is fetched live). With a prompt selected, "Enrich with AI" sends it — plus any optional instructions you type — to that model and shows the result. "Use this text" only updates the preview (nothing is saved yet); "Replace saved prompt" persists it to the stored prompt.
 
-## Licença
+## Testing status
 
-MIT — veja [LICENSE](LICENSE).
+Manually tested against a real ComfyUI Desktop instance (node loads without errors). Verified flows: create/rename/delete group, add/rate/edit/delete prompt, prompt selection, switching between Fixed/Random/Sequential modes (synced to the hidden widgets Python reads), prefix, full-group backup/restore (with and without overwrite), and AI enrichment end-to-end against the real OpenRouter API.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

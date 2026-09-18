@@ -158,7 +158,7 @@ def get_next_sequential(group_id: str) -> Optional[Dict[str, Any]]:
 
 def _import_group(db: Dict[str, Any], data: Dict[str, Any], overwrite: bool) -> Dict[str, Any]:
     """Merge a single group backup ``{"name", "prompts": [{"text", "rating"}]}`` into ``db`` in place."""
-    name = (data.get("name") or "Grupo restaurado").strip() or "Grupo restaurado"
+    name = (data.get("name") or "Restored group").strip() or "Restored group"
     prompts_in = data.get("prompts", [])
     imported_prompts = [
         {
@@ -176,7 +176,7 @@ def _import_group(db: Dict[str, Any], data: Dict[str, Any], overwrite: bool) -> 
         return existing
 
     if existing:
-        name = f"{name} (restaurado)"
+        name = f"{name} (restored)"
     group = {
         "id": uuid.uuid4().hex,
         "name": name,

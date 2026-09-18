@@ -8,9 +8,9 @@ const MODE_RANDOM = "random";
 const MODE_SEQUENTIAL = "sequential";
 
 const MODE_LABELS = {
-    [MODE_FIXED]: "Escolhido",
-    [MODE_RANDOM]: "Aleatório",
-    [MODE_SEQUENTIAL]: "Sequencial",
+    [MODE_FIXED]: "Fixed",
+    [MODE_RANDOM]: "Random",
+    [MODE_SEQUENTIAL]: "Sequential",
 };
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
@@ -226,6 +226,17 @@ const CSS_TEXT = `
     color: var(--descrip-text, #777);
     font-style: italic;
 }
+.pm-preview-badge {
+    align-self: flex-start;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #f2c94c;
+    background: rgba(242, 201, 76, 0.12);
+    border: 1px solid rgba(242, 201, 76, 0.4);
+    border-radius: 3px;
+    padding: 1px 5px;
+}
 .pm-enrich-box {
     display: flex;
     flex-direction: column;
@@ -260,6 +271,20 @@ const CSS_TEXT = `
     gap: 6px;
 }
 .pm-enrich-actions button { flex: 1; }
+.pm-enrich-instructions {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 44px;
+    max-height: 100px;
+    background: var(--comfy-input-bg, #232323);
+    color: var(--input-text, #ddd);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 11px;
+    font-family: inherit;
+}
 .pm-empty {
     display: flex;
     flex-direction: column;
@@ -536,17 +561,22 @@ function setupPromptManagerWidget(node) {
 
     [modeWidget, groupIdWidget, promptIdWidget, promptTextWidget, prefixWidget].forEach((w) => hideWidget(node, w));
 
+    if (!node.properties) node.properties = {};
+    if (node.properties.enrichInstructions === undefined) node.properties.enrichInstructions = "";
+
     const state = {
         groups: [],
         groupId: groupIdWidget.value || "",
         promptId: promptIdWidget.value || "",
         mode: modeWidget.value || MODE_FIXED,
         prefix: prefixWidget.value || "",
+        enrichInstructions: node.properties.enrichInstructions || "",
         addingPrompt: false,
         settingsMenuOpen: false,
         settings: { hasApiKey: false, model: DEFAULT_MODEL },
         models: { loading: false, loaded: false, list: [] },
         enrich: { loading: false, error: "", result: "" },
+        previewOverride: null,
     };
 
     const root = el("div", "pm-root");
@@ -575,11 +605,11 @@ function setupPromptManagerWidget(node) {
 
             const actions = el("div", "pm-modal-actions");
             if (mode !== "alert") {
-                const cancelBtn = el("button", "pm-secondary-btn", "Cancelar");
+                const cancelBtn = el("button", "pm-secondary-btn", "Cancel");
                 cancelBtn.addEventListener("click", () => finish(mode === "prompt" ? null : false));
                 actions.appendChild(cancelBtn);
             }
-            const okBtn = el("button", "pm-primary-btn", mode === "alert" ? "OK" : mode === "confirm" ? "Confirmar" : "Salvar");
+            const okBtn = el("button", "pm-primary-btn", mode === "alert" ? "OK" : mode === "confirm" ? "Confirm" : "Save");
             okBtn.addEventListener("click", () => finish(mode === "prompt" ? (input ? input.value : "") : true));
             actions.appendChild(okBtn);
             box.appendChild(actions);
@@ -620,9 +650,9 @@ function setupPromptManagerWidget(node) {
             box.innerHTML = "";
 
             const header = el("div", "pm-view-header");
-            header.appendChild(el("div", "pm-view-title", "Prompt completo"));
+            header.appendChild(el("div", "pm-view-title", "Full prompt"));
             const closeBtn = el("button", "pm-view-close", "×");
-            closeBtn.title = "Fechar";
+            closeBtn.title = "Close";
             closeBtn.addEventListener("click", close);
             header.appendChild(closeBtn);
             box.appendChild(header);
@@ -636,26 +666,26 @@ function setupPromptManagerWidget(node) {
             const actions = el("div", "pm-modal-actions pm-modal-actions-split");
 
             const leftGroup = el("div", "pm-editor-buttons");
-            const deleteBtn = el("button", "pm-secondary-btn", "Excluir");
+            const deleteBtn = el("button", "pm-secondary-btn", "Delete");
             deleteBtn.addEventListener("click", async () => {
                 if (await deletePrompt(group, prompt)) close();
             });
             leftGroup.appendChild(deleteBtn);
 
             const rightGroup = el("div", "pm-editor-buttons");
-            const editBtn = el("button", "pm-secondary-btn", "Editar");
+            const editBtn = el("button", "pm-secondary-btn", "Edit");
             editBtn.addEventListener("click", renderEdit);
-            const copyBtn = el("button", "pm-secondary-btn", "Copiar");
+            const copyBtn = el("button", "pm-secondary-btn", "Copy");
             copyBtn.addEventListener("click", async () => {
                 try {
                     await navigator.clipboard.writeText(prompt.text);
-                    copyBtn.textContent = "Copiado!";
-                    setTimeout(() => (copyBtn.textContent = "Copiar"), 1200);
+                    copyBtn.textContent = "Copied!";
+                    setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
                 } catch (e) {
-                    console.error("PromptManager: falha ao copiar", e);
+                    console.error("PromptManager: failed to copy", e);
                 }
             });
-            const closeBtn2 = el("button", "pm-primary-btn", "Fechar");
+            const closeBtn2 = el("button", "pm-primary-btn", "Close");
             closeBtn2.addEventListener("click", close);
             rightGroup.appendChild(editBtn);
             rightGroup.appendChild(copyBtn);
@@ -669,7 +699,7 @@ function setupPromptManagerWidget(node) {
         function renderEdit() {
             box.innerHTML = "";
 
-            box.appendChild(el("div", "pm-view-title", "Editar prompt"));
+            box.appendChild(el("div", "pm-view-title", "Edit prompt"));
 
             const textarea = document.createElement("textarea");
             textarea.className = "pm-view-textarea";
@@ -688,9 +718,9 @@ function setupPromptManagerWidget(node) {
             box.appendChild(starsRow);
 
             const actions = el("div", "pm-modal-actions");
-            const cancelBtn = el("button", "pm-secondary-btn", "Cancelar");
+            const cancelBtn = el("button", "pm-secondary-btn", "Cancel");
             cancelBtn.addEventListener("click", renderView);
-            const saveBtn = el("button", "pm-primary-btn", "Salvar");
+            const saveBtn = el("button", "pm-primary-btn", "Save");
             saveBtn.addEventListener("click", async () => {
                 const text = textarea.value.trim();
                 if (!text) {
@@ -737,8 +767,8 @@ function setupPromptManagerWidget(node) {
             const groups = await res.json();
             await loadGroups(groups[0] ? groups[0].id : undefined);
         } catch (e) {
-            console.error("PromptManager: falha ao restaurar backup", e);
-            await pmAlert("Não foi possível restaurar o backup. Verifique o arquivo.");
+            console.error("PromptManager: failed to restore backup", e);
+            await pmAlert("Could not restore the backup. Check the file.");
         }
     });
     root.appendChild(fileInput);
@@ -763,7 +793,7 @@ function setupPromptManagerWidget(node) {
             const res = await api.fetchApi("/prompt_manager/groups");
             state.groups = await res.json();
         } catch (e) {
-            console.error("PromptManager: falha ao carregar grupos", e);
+            console.error("PromptManager: failed to load groups", e);
         }
         if (selectGroupId !== undefined) {
             state.groupId = selectGroupId;
@@ -782,7 +812,7 @@ function setupPromptManagerWidget(node) {
             state.settings.hasApiKey = !!data.has_api_key;
             state.settings.model = data.model || DEFAULT_MODEL;
         } catch (e) {
-            console.error("PromptManager: falha ao carregar configurações", e);
+            console.error("PromptManager: failed to load settings", e);
         }
         render();
     }
@@ -797,7 +827,7 @@ function setupPromptManagerWidget(node) {
             state.models.list = data.models || [];
             state.models.loaded = true;
         } catch (e) {
-            console.error("PromptManager: falha ao carregar modelos", e);
+            console.error("PromptManager: failed to load models", e);
         }
         state.models.loading = false;
         render();
@@ -829,10 +859,10 @@ function setupPromptManagerWidget(node) {
             const res = await api.fetchApi("/prompt_manager/enrich", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: prompt.text }),
+                body: JSON.stringify({ text: prompt.text, instructions: state.enrichInstructions }),
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Falha ao enriquecer o prompt.");
+            if (!res.ok) throw new Error(data.error || "Failed to enrich the prompt.");
             state.enrich = { loading: false, error: "", result: data.text };
         } catch (e) {
             state.enrich = { loading: false, error: e.message || String(e), result: "" };
@@ -841,7 +871,7 @@ function setupPromptManagerWidget(node) {
     }
 
     async function createGroup() {
-        const name = await pmPrompt("Nome do novo grupo:");
+        const name = await pmPrompt("New group name:");
         if (!name || !name.trim()) return;
         const res = await api.fetchApi("/prompt_manager/groups", {
             method: "POST",
@@ -849,7 +879,7 @@ function setupPromptManagerWidget(node) {
             body: JSON.stringify({ name: name.trim() }),
         });
         if (!res.ok) {
-            await pmAlert("Não foi possível criar o grupo.");
+            await pmAlert("Could not create the group.");
             return;
         }
         const group = await res.json();
@@ -859,7 +889,7 @@ function setupPromptManagerWidget(node) {
     async function renameGroup() {
         const group = currentGroup();
         if (!group) return;
-        const name = await pmPrompt("Renomear grupo:", group.name);
+        const name = await pmPrompt("Rename group:", group.name);
         if (!name || !name.trim() || name.trim() === group.name) return;
         await api.fetchApi(`/prompt_manager/groups/${group.id}`, {
             method: "PUT",
@@ -872,13 +902,13 @@ function setupPromptManagerWidget(node) {
     async function deleteGroup() {
         const group = currentGroup();
         if (!group) return;
-        if (!(await pmConfirm(`Excluir o grupo "${group.name}" e todos os seus prompts?`))) return;
+        if (!(await pmConfirm(`Delete the group "${group.name}" and all its prompts?`))) return;
         await api.fetchApi(`/prompt_manager/groups/${group.id}`, { method: "DELETE" });
         await loadGroups();
     }
 
     async function deletePrompt(group, prompt) {
-        if (!(await pmConfirm("Excluir este prompt?"))) return false;
+        if (!(await pmConfirm("Delete this prompt?"))) return false;
         await api.fetchApi(`/prompt_manager/groups/${group.id}/prompts/${prompt.id}`, { method: "DELETE" });
         await loadGroups(group.id);
         return true;
@@ -915,6 +945,7 @@ function setupPromptManagerWidget(node) {
     function selectPrompt(prompt) {
         state.promptId = prompt.id;
         state.enrich = { loading: false, error: "", result: "" };
+        state.previewOverride = null;
         syncWidgets();
         render();
     }
@@ -961,7 +992,7 @@ function setupPromptManagerWidget(node) {
 
     function renderAddCard() {
         const card = el("div", "pm-add-card", "+");
-        card.title = "Adicionar prompt";
+        card.title = "Add prompt";
         card.addEventListener("click", () => {
             state.addingPrompt = true;
             render();
@@ -972,7 +1003,7 @@ function setupPromptManagerWidget(node) {
     function renderEditor(group) {
         const panel = el("div", "pm-editor");
         const textarea = document.createElement("textarea");
-        textarea.placeholder = "Digite o prompt...";
+        textarea.placeholder = "Type the prompt...";
         panel.appendChild(textarea);
 
         let draftRating = 0;
@@ -989,12 +1020,12 @@ function setupPromptManagerWidget(node) {
         const actions = el("div", "pm-editor-actions");
         const hint = el("span", "pm-hint", "");
         const buttons = el("div", "pm-editor-buttons");
-        const cancelBtn = el("button", "pm-secondary-btn", "Cancelar");
+        const cancelBtn = el("button", "pm-secondary-btn", "Cancel");
         cancelBtn.addEventListener("click", () => {
             state.addingPrompt = false;
             render();
         });
-        const saveBtn = el("button", "pm-primary-btn", "Salvar");
+        const saveBtn = el("button", "pm-primary-btn", "Save");
         saveBtn.addEventListener("click", async () => {
             const text = textarea.value.trim();
             if (!text) {
@@ -1016,7 +1047,7 @@ function setupPromptManagerWidget(node) {
     function renderSettingsMenu() {
         const menu = el("div", "pm-settings-menu");
 
-        const downloadBtn = el("button", "pm-menu-item", "⬇ Baixar backup de todos os grupos");
+        const downloadBtn = el("button", "pm-menu-item", "⬇ Download backup of all groups");
         if (!state.groups.length) downloadBtn.disabled = true;
         downloadBtn.addEventListener("click", () => {
             const url = api.apiURL("/prompt_manager/backup");
@@ -1031,7 +1062,7 @@ function setupPromptManagerWidget(node) {
         });
         menu.appendChild(downloadBtn);
 
-        const restoreBtn = el("button", "pm-menu-item", "⬆ Restaurar backup...");
+        const restoreBtn = el("button", "pm-menu-item", "⬆ Restore backup...");
         restoreBtn.addEventListener("click", () => {
             state.settingsMenuOpen = false;
             render();
@@ -1040,23 +1071,23 @@ function setupPromptManagerWidget(node) {
         menu.appendChild(restoreBtn);
 
         menu.appendChild(el("div", "pm-settings-divider"));
-        menu.appendChild(el("div", "pm-settings-title", "Enriquecer com IA (OpenRouter)"));
+        menu.appendChild(el("div", "pm-settings-title", "AI enrichment (OpenRouter)"));
 
         const keyField = el("div", "pm-settings-field");
-        keyField.appendChild(el("label", null, "Chave da API"));
+        keyField.appendChild(el("label", null, "API key"));
         const keyInput = document.createElement("input");
         keyInput.type = "password";
-        keyInput.placeholder = state.settings.hasApiKey ? "•••••••• (chave salva)" : "sk-or-...";
+        keyInput.placeholder = state.settings.hasApiKey ? "•••••••• (key saved)" : "sk-or-...";
         keyField.appendChild(keyInput);
         menu.appendChild(keyField);
 
         const modelField = el("div", "pm-settings-field");
-        modelField.appendChild(el("label", null, `Modelo${state.models.list.length ? ` (${state.models.list.length} disponíveis)` : ""}`));
+        modelField.appendChild(el("label", null, `Model${state.models.list.length ? ` (${state.models.list.length} available)` : ""}`));
 
         const currentModel = state.settings.model || DEFAULT_MODEL;
         let modelSelect = null;
         if (state.models.loading && !state.models.list.length) {
-            modelField.appendChild(el("div", "pm-settings-hint", "Carregando modelos..."));
+            modelField.appendChild(el("div", "pm-settings-hint", "Loading models..."));
         } else {
             modelSelect = document.createElement("select");
             if (!state.models.list.some((m) => m.id === currentModel)) {
@@ -1076,11 +1107,11 @@ function setupPromptManagerWidget(node) {
         }
         menu.appendChild(modelField);
 
-        const saveSettingsBtn = el("button", "pm-primary-btn pm-settings-save", "Salvar configurações");
+        const saveSettingsBtn = el("button", "pm-primary-btn pm-settings-save", "Save settings");
         saveSettingsBtn.addEventListener("click", async () => {
-            saveSettingsBtn.textContent = "Salvando...";
+            saveSettingsBtn.textContent = "Saving...";
             const ok = await saveSettings(keyInput.value || undefined, modelSelect ? modelSelect.value : undefined);
-            saveSettingsBtn.textContent = ok ? "Salvo!" : "Falhou";
+            saveSettingsBtn.textContent = ok ? "Saved!" : "Failed";
             setTimeout(() => {
                 state.settingsMenuOpen = false;
                 render();
@@ -1095,19 +1126,41 @@ function setupPromptManagerWidget(node) {
         const right = el("div", "pm-right");
 
         const preview = el("div", "pm-preview-box");
-        preview.appendChild(el("div", "pm-preview-title", "Prompt selecionado"));
+        preview.appendChild(el("div", "pm-preview-title", "Selected prompt"));
+        const hasOverride = state.previewOverride !== null;
         if (prompt) {
-            preview.appendChild(el("div", "pm-preview-text", prompt.text));
+            preview.appendChild(el("div", "pm-preview-text", hasOverride ? state.previewOverride : prompt.text));
         } else {
-            preview.appendChild(el("div", "pm-preview-text pm-preview-empty", "Nenhum prompt selecionado."));
+            preview.appendChild(el("div", "pm-preview-text pm-preview-empty", "No prompt selected."));
+        }
+        if (hasOverride) {
+            preview.appendChild(el("div", "pm-preview-badge", "Not saved yet"));
+            const replaceBtn = el("button", "pm-primary-btn", "Replace saved prompt");
+            replaceBtn.addEventListener("click", async () => {
+                await updatePrompt(group, prompt, state.previewOverride, prompt.rating);
+                state.previewOverride = null;
+                render();
+            });
+            preview.appendChild(replaceBtn);
         }
         right.appendChild(preview);
 
         const enrichBox = el("div", "pm-enrich-box");
-        const enrichBtn = el("button", "pm-primary-btn pm-enrich-btn", state.enrich.loading ? "Gerando..." : "✨ Enriquecer com IA");
+        const enrichBtn = el("button", "pm-primary-btn pm-enrich-btn", state.enrich.loading ? "Generating..." : "✨ Enrich with AI");
         enrichBtn.disabled = !prompt || state.enrich.loading;
         enrichBtn.addEventListener("click", enrichSelected);
         enrichBox.appendChild(enrichBtn);
+
+        const instructionsField = document.createElement("textarea");
+        instructionsField.className = "pm-enrich-instructions";
+        instructionsField.placeholder = "Instructions for the AI (optional). E.g.: expand the prompt into 2 paragraphs, add more detail about the environment...";
+        instructionsField.rows = 3;
+        instructionsField.value = state.enrichInstructions;
+        instructionsField.addEventListener("input", () => {
+            state.enrichInstructions = instructionsField.value;
+            node.properties.enrichInstructions = state.enrichInstructions;
+        });
+        enrichBox.appendChild(instructionsField);
 
         if (state.enrich.error) {
             enrichBox.appendChild(el("div", "pm-enrich-error", state.enrich.error));
@@ -1116,14 +1169,13 @@ function setupPromptManagerWidget(node) {
         if (state.enrich.result) {
             enrichBox.appendChild(el("div", "pm-enrich-result", state.enrich.result));
             const enrichActions = el("div", "pm-enrich-actions");
-            const useBtn = el("button", "pm-primary-btn", "Usar este texto");
-            useBtn.addEventListener("click", async () => {
-                const result = state.enrich.result;
-                await updatePrompt(group, prompt, result, prompt.rating);
+            const useBtn = el("button", "pm-primary-btn", "Use this text");
+            useBtn.addEventListener("click", () => {
+                state.previewOverride = state.enrich.result;
                 state.enrich = { loading: false, error: "", result: "" };
                 render();
             });
-            const discardBtn = el("button", "pm-secondary-btn", "Descartar");
+            const discardBtn = el("button", "pm-secondary-btn", "Discard");
             discardBtn.addEventListener("click", () => {
                 state.enrich = { loading: false, error: "", result: "" };
                 render();
@@ -1145,7 +1197,7 @@ function setupPromptManagerWidget(node) {
         select.className = "pm-select";
         if (!state.groups.length) {
             const opt = document.createElement("option");
-            opt.textContent = "Nenhum grupo";
+            opt.textContent = "No group";
             opt.value = "";
             select.appendChild(opt);
         }
@@ -1165,22 +1217,22 @@ function setupPromptManagerWidget(node) {
         groupRow.appendChild(select);
 
         const renameBtn = el("button", "pm-icon-btn", "✎");
-        renameBtn.title = "Renomear grupo";
+        renameBtn.title = "Rename group";
         renameBtn.addEventListener("click", renameGroup);
         groupRow.appendChild(renameBtn);
 
         const newBtn = el("button", "pm-icon-btn", "+");
-        newBtn.title = "Novo grupo";
+        newBtn.title = "New group";
         newBtn.addEventListener("click", createGroup);
         groupRow.appendChild(newBtn);
 
         const delBtn = el("button", "pm-icon-btn", "🗑");
-        delBtn.title = "Excluir grupo";
+        delBtn.title = "Delete group";
         delBtn.addEventListener("click", deleteGroup);
         groupRow.appendChild(delBtn);
 
         const settingsBtn = el("button", "pm-icon-btn pm-settings-btn", "⚙️");
-        settingsBtn.title = "Configurações (backup e IA)";
+        settingsBtn.title = "Settings (backup & AI)";
         settingsBtn.addEventListener("click", (ev) => {
             ev.stopPropagation();
             state.settingsMenuOpen = !state.settingsMenuOpen;
@@ -1204,7 +1256,7 @@ function setupPromptManagerWidget(node) {
         body.appendChild(modeBar);
 
         const prefixRow = el("div", "pm-prefix-row");
-        prefixRow.appendChild(el("div", "pm-prefix-label", "Prefixo (sempre inserido antes do prompt)"));
+        prefixRow.appendChild(el("div", "pm-prefix-label", "Prefix (always inserted before the prompt)"));
         const prefixInput = document.createElement("textarea");
         prefixInput.className = "pm-prefix-input";
         prefixInput.placeholder = "Ex: masterpiece, best quality";
@@ -1225,8 +1277,8 @@ function setupPromptManagerWidget(node) {
 
         if (!group) {
             const empty = el("div", "pm-empty");
-            empty.appendChild(el("div", null, "Crie um grupo para começar a guardar seus prompts."));
-            const createBtn = el("button", "pm-primary-btn", "+ Criar grupo");
+            empty.appendChild(el("div", null, "Create a group to start saving your prompts."));
+            const createBtn = el("button", "pm-primary-btn", "+ Create group");
             createBtn.addEventListener("click", createGroup);
             empty.appendChild(createBtn);
             content.appendChild(empty);

@@ -29,50 +29,50 @@ def setup_routes():
     async def pm_create_group(request):
         data = await _json_body(request)
         if data is None:
-            return _err("JSON inválido")
+            return _err("Invalid JSON")
         name = (data.get("name") or "").strip()
         if not name:
-            return _err("Nome do grupo é obrigatório")
+            return _err("Group name is required")
         return web.json_response(storage.create_group(name))
 
     @routes.put("/prompt_manager/groups/{group_id}")
     async def pm_rename_group(request):
         data = await _json_body(request)
         if data is None:
-            return _err("JSON inválido")
+            return _err("Invalid JSON")
         name = (data.get("name") or "").strip()
         if not name:
-            return _err("Nome do grupo é obrigatório")
+            return _err("Group name is required")
         group = storage.rename_group(request.match_info["group_id"], name)
         if group is None:
-            return _err("Grupo não encontrado", 404)
+            return _err("Group not found", 404)
         return web.json_response(group)
 
     @routes.delete("/prompt_manager/groups/{group_id}")
     async def pm_delete_group(request):
         ok = storage.delete_group(request.match_info["group_id"])
         if not ok:
-            return _err("Grupo não encontrado", 404)
+            return _err("Group not found", 404)
         return web.json_response({"ok": True})
 
     @routes.post("/prompt_manager/groups/{group_id}/prompts")
     async def pm_add_prompt(request):
         data = await _json_body(request)
         if data is None:
-            return _err("JSON inválido")
+            return _err("Invalid JSON")
         text = (data.get("text") or "").strip()
         if not text:
-            return _err("Texto do prompt é obrigatório")
+            return _err("Prompt text is required")
         prompt = storage.add_prompt(request.match_info["group_id"], text, data.get("rating", 0))
         if prompt is None:
-            return _err("Grupo não encontrado", 404)
+            return _err("Group not found", 404)
         return web.json_response(prompt)
 
     @routes.put("/prompt_manager/groups/{group_id}/prompts/{prompt_id}")
     async def pm_update_prompt(request):
         data = await _json_body(request)
         if data is None:
-            return _err("JSON inválido")
+            return _err("Invalid JSON")
         prompt = storage.update_prompt(
             request.match_info["group_id"],
             request.match_info["prompt_id"],
@@ -80,14 +80,14 @@ def setup_routes():
             rating=data.get("rating"),
         )
         if prompt is None:
-            return _err("Prompt não encontrado", 404)
+            return _err("Prompt not found", 404)
         return web.json_response(prompt)
 
     @routes.delete("/prompt_manager/groups/{group_id}/prompts/{prompt_id}")
     async def pm_delete_prompt(request):
         ok = storage.delete_prompt(request.match_info["group_id"], request.match_info["prompt_id"])
         if not ok:
-            return _err("Prompt não encontrado", 404)
+            return _err("Prompt not found", 404)
         return web.json_response({"ok": True})
 
     @routes.get("/prompt_manager/backup")
@@ -101,7 +101,7 @@ def setup_routes():
     async def pm_restore_all(request):
         data = await _json_body(request)
         if data is None or "groups" not in data:
-            return _err("Arquivo de backup inválido")
+            return _err("Invalid backup file")
         groups = storage.restore_all(data, overwrite=bool(data.get("overwrite", False)))
         return web.json_response(groups)
 
@@ -117,7 +117,7 @@ def setup_routes():
     async def pm_save_settings(request):
         data = await _json_body(request)
         if data is None:
-            return _err("JSON inválido")
+            return _err("Invalid JSON")
         settings = storage.save_settings(
             api_key=data.get("api_key") if "api_key" in data else None,
             model=data.get("model") if "model" in data else None,
@@ -139,17 +139,18 @@ def setup_routes():
     async def pm_enrich(request):
         data = await _json_body(request)
         if data is None:
-            return _err("JSON inválido")
+            return _err("Invalid JSON")
         text = (data.get("text") or "").strip()
         if not text:
-            return _err("Texto do prompt é obrigatório")
+            return _err("Prompt text is required")
+        instructions = data.get("instructions") or ""
         settings = storage.get_settings()
         api_key = settings.get("api_key")
         if not api_key:
-            return _err("Configure a chave da API do OpenRouter nas configurações antes de enriquecer.", 400)
+            return _err("Set your OpenRouter API key in settings before enriching.", 400)
         model = settings.get("model") or storage.DEFAULT_MODEL
         try:
-            enriched = await enrich_prompt(api_key, model, text)
+            enriched = await enrich_prompt(api_key, model, text, instructions)
         except OpenRouterError as e:
             return _err(str(e), 502)
         return web.json_response({"text": enriched})
