@@ -720,6 +720,7 @@ function setupPromptManagerWidget(node) {
         settings: { hasApiKey: false, model: DEFAULT_MODEL },
         models: { loading: false, loaded: false, list: [] },
         enrich: { loading: false, error: "", result: "" },
+        enrichMode: "existing",
         previewOverride: null,
         img2prompt: {
             imageDataUrl: null,
@@ -1057,7 +1058,8 @@ function setupPromptManagerWidget(node) {
     async function enrichSelected() {
         const group = currentGroup();
         const prompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
-        if (!prompt) return;
+        const isNewMode = state.enrichMode === "new";
+        if (isNewMode ? !state.enrichInstructions.trim() : !prompt) return;
 
         state.enrich = { loading: true, error: "", result: "" };
         render();
@@ -1065,7 +1067,7 @@ function setupPromptManagerWidget(node) {
             const res = await api.fetchApi("/prompt_manager/enrich", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: prompt.text, instructions: state.enrichInstructions }),
+                body: JSON.stringify({ text: isNewMode ? "" : prompt.text, instructions: state.enrichInstructions }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "Failed to enrich the prompt.");
@@ -1554,19 +1556,46 @@ function setupPromptManagerWidget(node) {
         right.appendChild(preview);
 
         const enrichBox = el("div", "pm-enrich-box");
-        const enrichBtn = el("button", "pm-primary-btn pm-enrich-btn", state.enrich.loading ? "Generating..." : "✨ Enrich with AI");
-        enrichBtn.disabled = !prompt || state.enrich.loading;
+
+        const enrichModeBar = el("div", "pm-mode-bar");
+        const isNewMode = state.enrichMode === "new";
+        const existingModeBtn = el("button", "pm-mode-btn" + (isNewMode ? "" : " pm-active"), "Enrich selected");
+        existingModeBtn.addEventListener("click", () => {
+            state.enrichMode = "existing";
+            state.enrich = { loading: false, error: "", result: "" };
+            render();
+        });
+        const newModeBtn = el("button", "pm-mode-btn" + (isNewMode ? " pm-active" : ""), "Ask for a prompt");
+        newModeBtn.addEventListener("click", () => {
+            state.enrichMode = "new";
+            state.enrich = { loading: false, error: "", result: "" };
+            render();
+        });
+        enrichModeBar.appendChild(existingModeBtn);
+        enrichModeBar.appendChild(newModeBtn);
+        enrichBox.appendChild(enrichModeBar);
+
+        const canEnrich = isNewMode ? state.enrichInstructions.trim().length > 0 : !!prompt;
+        const enrichBtn = el(
+            "button",
+            "pm-primary-btn pm-enrich-btn",
+            state.enrich.loading ? "Generating..." : isNewMode ? "✨ Generate prompt" : "✨ Enrich with AI"
+        );
+        enrichBtn.disabled = !canEnrich || state.enrich.loading;
         enrichBtn.addEventListener("click", enrichSelected);
         enrichBox.appendChild(enrichBtn);
 
         const instructionsField = document.createElement("textarea");
         instructionsField.className = "pm-enrich-instructions";
-        instructionsField.placeholder = "Instructions for the AI (optional). E.g.: expand the prompt into 2 paragraphs, add more detail about the environment...";
+        instructionsField.placeholder = isNewMode
+            ? "Describe the prompt you want. E.g.: a fantasy castle at sunset, oil painting style..."
+            : "Instructions for the AI (optional). E.g.: expand the prompt into 2 paragraphs, add more detail about the environment...";
         instructionsField.rows = 3;
         instructionsField.value = state.enrichInstructions;
         instructionsField.addEventListener("input", () => {
             state.enrichInstructions = instructionsField.value;
             node.properties.enrichInstructions = state.enrichInstructions;
+            enrichBtn.disabled = (isNewMode && !instructionsField.value.trim()) || state.enrich.loading;
         });
         enrichBox.appendChild(instructionsField);
 
@@ -1576,20 +1605,36 @@ function setupPromptManagerWidget(node) {
 
         if (state.enrich.result) {
             enrichBox.appendChild(el("div", "pm-enrich-result", state.enrich.result));
+
+            if (group) {
+                const saveNewBtn = el("button", "pm-primary-btn", `Save as new prompt to "${group.name}"`);
+                saveNewBtn.addEventListener("click", async () => {
+                    const created = await addPrompt(group, state.enrich.result, 0);
+                    state.promptId = created.id;
+                    state.enrich = { loading: false, error: "", result: "" };
+                    state.previewOverride = null;
+                    syncWidgets();
+                    render();
+                });
+                enrichBox.appendChild(saveNewBtn);
+            }
+
             const enrichActions = el("div", "pm-enrich-actions");
-            const useBtn = el("button", "pm-primary-btn", "Use this text");
-            useBtn.addEventListener("click", () => {
-                state.previewOverride = state.enrich.result;
-                state.enrich = { loading: false, error: "", result: "" };
-                render();
-            });
             const discardBtn = el("button", "pm-secondary-btn", "Discard");
             discardBtn.addEventListener("click", () => {
                 state.enrich = { loading: false, error: "", result: "" };
                 render();
             });
             enrichActions.appendChild(discardBtn);
-            enrichActions.appendChild(useBtn);
+            if (prompt) {
+                const useBtn = el("button", "pm-primary-btn", "Use this text");
+                useBtn.addEventListener("click", () => {
+                    state.previewOverride = state.enrich.result;
+                    state.enrich = { loading: false, error: "", result: "" };
+                    render();
+                });
+                enrichActions.appendChild(useBtn);
+            }
             enrichBox.appendChild(enrichActions);
         }
 

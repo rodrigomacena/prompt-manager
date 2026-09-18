@@ -9,13 +9,15 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 _MODELS_CACHE_TTL = 3600
 
 _ENRICH_SYSTEM_PROMPT = (
-    "You are an expert prompt engineer for AI image generation. Rewrite the user's "
-    "prompt into a richer, more detailed version: add concrete visual detail (lighting, "
-    "composition, camera/lens, style, textures, mood, environment) while preserving its "
-    "original subject and intent. If the user provides additional instructions (about "
-    "length, structure, focus, etc.), follow them exactly, even if that means deviating "
-    "from the default single-line, comma-separated style. Respond with ONLY the "
-    "improved prompt text, no explanations, no quotes, no markdown."
+    "You are an expert prompt engineer for AI image generation. If the user provides "
+    "an existing prompt, rewrite it into a richer, more detailed version: add concrete "
+    "visual detail (lighting, composition, camera/lens, style, textures, mood, "
+    "environment) while preserving its original subject and intent. If no existing "
+    "prompt is given, write a brand new, richly detailed prompt based on the user's "
+    "request instead. If the user provides additional instructions (about length, "
+    "structure, focus, etc.), follow them exactly, even if that means deviating from "
+    "the default single-line, comma-separated style. Respond with ONLY the prompt "
+    "text, no explanations, no quotes, no markdown."
 )
 
 _IMAGE_SYSTEM_PROMPT = (
@@ -57,9 +59,16 @@ async def _chat_completion(api_key: str, model: str, messages: list, timeout: in
 
 
 async def enrich_prompt(api_key: str, model: str, text: str, instructions: str = "") -> str:
-    user_content = text
-    if instructions.strip():
-        user_content = f"Additional instructions: {instructions.strip()}\n\nOriginal prompt: {text}"
+    text = (text or "").strip()
+    instructions = (instructions or "").strip()
+    if text and instructions:
+        user_content = f"Additional instructions: {instructions}\n\nOriginal prompt: {text}"
+    elif text:
+        user_content = text
+    elif instructions:
+        user_content = f"Create a new image-generation prompt based on this request: {instructions}"
+    else:
+        user_content = "Create an interesting, detailed image-generation prompt."
     messages = [
         {"role": "system", "content": _ENRICH_SYSTEM_PROMPT},
         {"role": "user", "content": user_content},

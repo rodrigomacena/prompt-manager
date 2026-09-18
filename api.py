@@ -144,9 +144,9 @@ def setup_routes():
         if data is None:
             return _err("Invalid JSON")
         text = (data.get("text") or "").strip()
-        if not text:
-            return _err("Prompt text is required")
-        instructions = data.get("instructions") or ""
+        instructions = (data.get("instructions") or "").strip()
+        if not text and not instructions:
+            return _err("Prompt text or instructions are required")
         settings = storage.get_settings()
         api_key = settings.get("api_key")
         if not api_key:
