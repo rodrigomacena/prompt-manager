@@ -4,7 +4,7 @@ from aiohttp import web
 from server import PromptServer
 
 from . import storage
-from .openrouter import OpenRouterError, enrich_prompt
+from .openrouter import OpenRouterError, enrich_prompt, list_models
 
 
 def _err(message: str, status: int = 400):
@@ -126,6 +126,14 @@ def setup_routes():
             "has_api_key": bool(settings.get("api_key")),
             "model": settings.get("model", storage.DEFAULT_MODEL),
         })
+
+    @routes.get("/prompt_manager/models")
+    async def pm_list_models(request):
+        try:
+            models = await list_models()
+        except OpenRouterError as e:
+            return _err(str(e), 502)
+        return web.json_response({"models": models})
 
     @routes.post("/prompt_manager/enrich")
     async def pm_enrich(request):

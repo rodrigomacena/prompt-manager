@@ -14,15 +14,6 @@ const MODE_LABELS = {
 };
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
-const COMMON_MODELS = [
-    "openai/gpt-4o-mini",
-    "openai/gpt-4o",
-    "anthropic/claude-3.5-sonnet",
-    "google/gemini-2.0-flash-001",
-    "meta-llama/llama-3.1-8b-instruct:free",
-];
-
-let widgetInstanceCounter = 0;
 
 const CSS_TEXT = `
 .pm-root {
@@ -93,13 +84,19 @@ const CSS_TEXT = `
     font-size: 10px;
     color: var(--descrip-text, #888);
 }
-.pm-settings-field input {
+.pm-settings-field input,
+.pm-settings-field select {
+    width: 100%;
+    box-sizing: border-box;
     background: var(--comfy-input-bg, #232323);
     color: var(--input-text, #ddd);
     border: 1px solid var(--border-color, #444);
     border-radius: 4px;
     padding: 4px 6px;
     font-size: 11px;
+}
+.pm-settings-field select {
+    max-width: 100%;
 }
 .pm-settings-hint {
     font-size: 10px;
@@ -124,25 +121,34 @@ const CSS_TEXT = `
 }
 .pm-select {
     flex: 1;
+    box-sizing: border-box;
+    height: 24px;
     background: var(--comfy-input-bg, #333);
     color: var(--input-text, #ddd);
     border: 1px solid var(--border-color, #444);
     border-radius: 4px;
-    padding: 3px 4px;
+    padding: 0 4px;
     font-size: 12px;
     min-width: 0;
 }
 .pm-icon-btn {
+    box-sizing: border-box;
     background: var(--comfy-input-bg, #333);
     border: 1px solid var(--border-color, #444);
     color: var(--input-text, #ddd);
     border-radius: 4px;
     cursor: pointer;
-    width: 22px;
-    height: 22px;
-    line-height: 1;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin: 0;
     font-size: 13px;
     flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: normal;
+    vertical-align: middle;
 }
 .pm-icon-btn:hover { background: rgba(255,255,255,0.12); }
 .pm-mode-bar {
@@ -522,7 +528,6 @@ function hideWidget(node, widget) {
 }
 
 function setupPromptManagerWidget(node) {
-    const instanceId = ++widgetInstanceCounter;
     const modeWidget = node.widgets.find((w) => w.name === "mode");
     const groupIdWidget = node.widgets.find((w) => w.name === "group_id");
     const promptIdWidget = node.widgets.find((w) => w.name === "prompt_id");
@@ -540,6 +545,7 @@ function setupPromptManagerWidget(node) {
         addingPrompt: false,
         settingsMenuOpen: false,
         settings: { hasApiKey: false, model: DEFAULT_MODEL },
+        models: { loading: false, loaded: false, list: [] },
         enrich: { loading: false, error: "", result: "" },
     };
 
@@ -778,6 +784,22 @@ function setupPromptManagerWidget(node) {
         } catch (e) {
             console.error("PromptManager: falha ao carregar configurações", e);
         }
+        render();
+    }
+
+    async function loadModels() {
+        if (state.models.loaded || state.models.loading) return;
+        state.models.loading = true;
+        render();
+        try {
+            const res = await api.fetchApi("/prompt_manager/models");
+            const data = await res.json();
+            state.models.list = data.models || [];
+            state.models.loaded = true;
+        } catch (e) {
+            console.error("PromptManager: falha ao carregar modelos", e);
+        }
+        state.models.loading = false;
         render();
     }
 
@@ -1029,26 +1051,35 @@ function setupPromptManagerWidget(node) {
         menu.appendChild(keyField);
 
         const modelField = el("div", "pm-settings-field");
-        modelField.appendChild(el("label", null, "Modelo"));
-        const modelInput = document.createElement("input");
-        modelInput.type = "text";
-        modelInput.setAttribute("list", `pm-model-list-${instanceId}`);
-        modelInput.value = state.settings.model || DEFAULT_MODEL;
-        const datalist = document.createElement("datalist");
-        datalist.id = `pm-model-list-${instanceId}`;
-        for (const m of COMMON_MODELS) {
-            const opt = document.createElement("option");
-            opt.value = m;
-            datalist.appendChild(opt);
+        modelField.appendChild(el("label", null, `Modelo${state.models.list.length ? ` (${state.models.list.length} disponíveis)` : ""}`));
+
+        const currentModel = state.settings.model || DEFAULT_MODEL;
+        let modelSelect = null;
+        if (state.models.loading && !state.models.list.length) {
+            modelField.appendChild(el("div", "pm-settings-hint", "Carregando modelos..."));
+        } else {
+            modelSelect = document.createElement("select");
+            if (!state.models.list.some((m) => m.id === currentModel)) {
+                const opt = document.createElement("option");
+                opt.value = currentModel;
+                opt.textContent = currentModel;
+                modelSelect.appendChild(opt);
+            }
+            for (const m of state.models.list) {
+                const opt = document.createElement("option");
+                opt.value = m.id;
+                opt.textContent = m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id;
+                if (m.id === currentModel) opt.selected = true;
+                modelSelect.appendChild(opt);
+            }
+            modelField.appendChild(modelSelect);
         }
-        modelField.appendChild(modelInput);
-        modelField.appendChild(datalist);
         menu.appendChild(modelField);
 
         const saveSettingsBtn = el("button", "pm-primary-btn pm-settings-save", "Salvar configurações");
         saveSettingsBtn.addEventListener("click", async () => {
             saveSettingsBtn.textContent = "Salvando...";
-            const ok = await saveSettings(keyInput.value || undefined, modelInput.value);
+            const ok = await saveSettings(keyInput.value || undefined, modelSelect ? modelSelect.value : undefined);
             saveSettingsBtn.textContent = ok ? "Salvo!" : "Falhou";
             setTimeout(() => {
                 state.settingsMenuOpen = false;
@@ -1153,6 +1184,7 @@ function setupPromptManagerWidget(node) {
         settingsBtn.addEventListener("click", (ev) => {
             ev.stopPropagation();
             state.settingsMenuOpen = !state.settingsMenuOpen;
+            if (state.settingsMenuOpen) loadModels();
             render();
         });
         groupRow.appendChild(settingsBtn);
