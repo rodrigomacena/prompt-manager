@@ -1471,11 +1471,6 @@ function setupPromptManagerWidget(node) {
             panel.appendChild(el("div", "pm-img2prompt-error", img.error));
         }
 
-        const convertBtn = el("button", "pm-primary-btn", img.loading ? "Converting..." : "Convert to prompt");
-        convertBtn.disabled = !img.imageDataUrl || img.loading;
-        convertBtn.addEventListener("click", convertImageToPrompt);
-        panel.appendChild(convertBtn);
-
         const instructionsField = document.createElement("textarea");
         instructionsField.className = "pm-enrich-instructions";
         instructionsField.placeholder = "Instructions (optional). E.g.: describe only the scenery in this image.";
@@ -1486,6 +1481,11 @@ function setupPromptManagerWidget(node) {
             node.properties.img2promptInstructions = instructionsField.value;
         });
         panel.appendChild(instructionsField);
+
+        const convertBtn = el("button", "pm-primary-btn", img.loading ? "Converting..." : "Convert to prompt");
+        convertBtn.disabled = !img.imageDataUrl || img.loading;
+        convertBtn.addEventListener("click", convertImageToPrompt);
+        panel.appendChild(convertBtn);
 
         if (img.result) {
             panel.appendChild(el("div", "pm-img2prompt-divider"));
