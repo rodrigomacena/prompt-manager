@@ -13,6 +13,17 @@ const MODE_LABELS = {
     [MODE_SEQUENTIAL]: "Sequencial",
 };
 
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const COMMON_MODELS = [
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o",
+    "anthropic/claude-3.5-sonnet",
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.1-8b-instruct:free",
+];
+
+let widgetInstanceCounter = 0;
+
 const CSS_TEXT = `
 .pm-root {
     position: relative;
@@ -29,12 +40,12 @@ const CSS_TEXT = `
     padding: 6px;
     overflow: hidden;
 }
-.pm-backup-btn {
+.pm-settings-btn {
     opacity: 0.5;
     transition: opacity 0.15s ease;
 }
-.pm-backup-btn:hover { opacity: 1; }
-.pm-backup-menu {
+.pm-settings-btn:hover { opacity: 1; }
+.pm-settings-menu {
     position: absolute;
     top: 100%;
     right: 0;
@@ -46,19 +57,58 @@ const CSS_TEXT = `
     z-index: 10;
     display: flex;
     flex-direction: column;
-    min-width: 190px;
-    overflow: hidden;
+    min-width: 230px;
+    padding: 4px;
 }
-.pm-backup-menu button {
+.pm-settings-menu button.pm-menu-item {
     background: transparent;
     border: none;
     color: var(--input-text, #ddd);
     text-align: left;
-    padding: 6px 10px;
+    padding: 6px 8px;
     cursor: pointer;
     font-size: 11px;
+    border-radius: 3px;
 }
-.pm-backup-menu button:hover { background: rgba(255,255,255,0.08); }
+.pm-settings-menu button.pm-menu-item:hover { background: rgba(255,255,255,0.08); }
+.pm-settings-divider {
+    height: 1px;
+    background: var(--border-color, #444);
+    margin: 4px 2px;
+}
+.pm-settings-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--descrip-text, #888);
+    padding: 4px 8px 2px;
+}
+.pm-settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 2px 8px;
+}
+.pm-settings-field label {
+    font-size: 10px;
+    color: var(--descrip-text, #888);
+}
+.pm-settings-field input {
+    background: var(--comfy-input-bg, #232323);
+    color: var(--input-text, #ddd);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 11px;
+}
+.pm-settings-hint {
+    font-size: 10px;
+    color: var(--descrip-text, #888);
+    padding: 0 8px;
+}
+.pm-settings-save {
+    margin: 6px 8px 2px;
+}
 .pm-body {
     flex: 1;
     display: flex;
@@ -116,8 +166,15 @@ const CSS_TEXT = `
     background: var(--p-primary-color, #5b8dee);
     color: #fff;
 }
-.pm-content {
+.pm-main {
     flex: 1;
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    min-height: 0;
+}
+.pm-content {
+    flex: 1.3;
     min-height: 0;
     overflow-y: auto;
     border: 1px solid var(--border-color, #3a3a3a);
@@ -125,6 +182,78 @@ const CSS_TEXT = `
     padding: 6px;
     background: rgba(0,0,0,0.15);
 }
+.pm-right {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.pm-preview-box {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    padding: 6px;
+    background: rgba(0,0,0,0.15);
+}
+.pm-preview-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--descrip-text, #888);
+}
+.pm-preview-text {
+    flex: 1;
+    min-height: 60px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--input-text, #ddd);
+}
+.pm-preview-empty {
+    color: var(--descrip-text, #777);
+    font-style: italic;
+}
+.pm-enrich-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    padding: 6px;
+    background: rgba(0,0,0,0.15);
+}
+.pm-enrich-btn {
+    width: 100%;
+}
+.pm-enrich-result {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--input-text, #ddd);
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    padding: 6px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+.pm-enrich-error {
+    font-size: 10px;
+    color: #e57373;
+}
+.pm-enrich-actions {
+    display: flex;
+    gap: 6px;
+}
+.pm-enrich-actions button { flex: 1; }
 .pm-empty {
     display: flex;
     flex-direction: column;
@@ -393,6 +522,7 @@ function hideWidget(node, widget) {
 }
 
 function setupPromptManagerWidget(node) {
+    const instanceId = ++widgetInstanceCounter;
     const modeWidget = node.widgets.find((w) => w.name === "mode");
     const groupIdWidget = node.widgets.find((w) => w.name === "group_id");
     const promptIdWidget = node.widgets.find((w) => w.name === "prompt_id");
@@ -408,7 +538,9 @@ function setupPromptManagerWidget(node) {
         mode: modeWidget.value || MODE_FIXED,
         prefix: prefixWidget.value || "",
         addingPrompt: false,
-        backupMenuOpen: false,
+        settingsMenuOpen: false,
+        settings: { hasApiKey: false, model: DEFAULT_MODEL },
+        enrich: { loading: false, error: "", result: "" },
     };
 
     const root = el("div", "pm-root");
@@ -637,6 +769,55 @@ function setupPromptManagerWidget(node) {
         render();
     }
 
+    async function loadSettings() {
+        try {
+            const res = await api.fetchApi("/prompt_manager/settings");
+            const data = await res.json();
+            state.settings.hasApiKey = !!data.has_api_key;
+            state.settings.model = data.model || DEFAULT_MODEL;
+        } catch (e) {
+            console.error("PromptManager: falha ao carregar configurações", e);
+        }
+        render();
+    }
+
+    async function saveSettings(apiKey, model) {
+        const body = {};
+        if (apiKey !== undefined) body.api_key = apiKey;
+        if (model !== undefined) body.model = model;
+        const res = await api.fetchApi("/prompt_manager/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        state.settings.hasApiKey = !!data.has_api_key;
+        state.settings.model = data.model || DEFAULT_MODEL;
+        return res.ok;
+    }
+
+    async function enrichSelected() {
+        const group = currentGroup();
+        const prompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
+        if (!prompt) return;
+
+        state.enrich = { loading: true, error: "", result: "" };
+        render();
+        try {
+            const res = await api.fetchApi("/prompt_manager/enrich", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: prompt.text }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Falha ao enriquecer o prompt.");
+            state.enrich = { loading: false, error: "", result: data.text };
+        } catch (e) {
+            state.enrich = { loading: false, error: e.message || String(e), result: "" };
+        }
+        render();
+    }
+
     async function createGroup() {
         const name = await pmPrompt("Nome do novo grupo:");
         if (!name || !name.trim()) return;
@@ -711,6 +892,7 @@ function setupPromptManagerWidget(node) {
 
     function selectPrompt(prompt) {
         state.promptId = prompt.id;
+        state.enrich = { loading: false, error: "", result: "" };
         syncWidgets();
         render();
     }
@@ -809,10 +991,10 @@ function setupPromptManagerWidget(node) {
         return panel;
     }
 
-    function renderBackupMenu() {
-        const menu = el("div", "pm-backup-menu");
+    function renderSettingsMenu() {
+        const menu = el("div", "pm-settings-menu");
 
-        const downloadBtn = el("button", "", "⬇ Baixar backup de todos os grupos");
+        const downloadBtn = el("button", "pm-menu-item", "⬇ Baixar backup de todos os grupos");
         if (!state.groups.length) downloadBtn.disabled = true;
         downloadBtn.addEventListener("click", () => {
             const url = api.apiURL("/prompt_manager/backup");
@@ -822,20 +1004,106 @@ function setupPromptManagerWidget(node) {
             document.body.appendChild(a);
             a.click();
             a.remove();
-            state.backupMenuOpen = false;
+            state.settingsMenuOpen = false;
             render();
         });
         menu.appendChild(downloadBtn);
 
-        const restoreBtn = el("button", "", "⬆ Restaurar backup...");
+        const restoreBtn = el("button", "pm-menu-item", "⬆ Restaurar backup...");
         restoreBtn.addEventListener("click", () => {
-            state.backupMenuOpen = false;
+            state.settingsMenuOpen = false;
             render();
             fileInput.click();
         });
         menu.appendChild(restoreBtn);
 
+        menu.appendChild(el("div", "pm-settings-divider"));
+        menu.appendChild(el("div", "pm-settings-title", "Enriquecer com IA (OpenRouter)"));
+
+        const keyField = el("div", "pm-settings-field");
+        keyField.appendChild(el("label", null, "Chave da API"));
+        const keyInput = document.createElement("input");
+        keyInput.type = "password";
+        keyInput.placeholder = state.settings.hasApiKey ? "•••••••• (chave salva)" : "sk-or-...";
+        keyField.appendChild(keyInput);
+        menu.appendChild(keyField);
+
+        const modelField = el("div", "pm-settings-field");
+        modelField.appendChild(el("label", null, "Modelo"));
+        const modelInput = document.createElement("input");
+        modelInput.type = "text";
+        modelInput.setAttribute("list", `pm-model-list-${instanceId}`);
+        modelInput.value = state.settings.model || DEFAULT_MODEL;
+        const datalist = document.createElement("datalist");
+        datalist.id = `pm-model-list-${instanceId}`;
+        for (const m of COMMON_MODELS) {
+            const opt = document.createElement("option");
+            opt.value = m;
+            datalist.appendChild(opt);
+        }
+        modelField.appendChild(modelInput);
+        modelField.appendChild(datalist);
+        menu.appendChild(modelField);
+
+        const saveSettingsBtn = el("button", "pm-primary-btn pm-settings-save", "Salvar configurações");
+        saveSettingsBtn.addEventListener("click", async () => {
+            saveSettingsBtn.textContent = "Salvando...";
+            const ok = await saveSettings(keyInput.value || undefined, modelInput.value);
+            saveSettingsBtn.textContent = ok ? "Salvo!" : "Falhou";
+            setTimeout(() => {
+                state.settingsMenuOpen = false;
+                render();
+            }, 600);
+        });
+        menu.appendChild(saveSettingsBtn);
+
         return menu;
+    }
+
+    function renderRightPanel(group, prompt) {
+        const right = el("div", "pm-right");
+
+        const preview = el("div", "pm-preview-box");
+        preview.appendChild(el("div", "pm-preview-title", "Prompt selecionado"));
+        if (prompt) {
+            preview.appendChild(el("div", "pm-preview-text", prompt.text));
+        } else {
+            preview.appendChild(el("div", "pm-preview-text pm-preview-empty", "Nenhum prompt selecionado."));
+        }
+        right.appendChild(preview);
+
+        const enrichBox = el("div", "pm-enrich-box");
+        const enrichBtn = el("button", "pm-primary-btn pm-enrich-btn", state.enrich.loading ? "Gerando..." : "✨ Enriquecer com IA");
+        enrichBtn.disabled = !prompt || state.enrich.loading;
+        enrichBtn.addEventListener("click", enrichSelected);
+        enrichBox.appendChild(enrichBtn);
+
+        if (state.enrich.error) {
+            enrichBox.appendChild(el("div", "pm-enrich-error", state.enrich.error));
+        }
+
+        if (state.enrich.result) {
+            enrichBox.appendChild(el("div", "pm-enrich-result", state.enrich.result));
+            const enrichActions = el("div", "pm-enrich-actions");
+            const useBtn = el("button", "pm-primary-btn", "Usar este texto");
+            useBtn.addEventListener("click", async () => {
+                const result = state.enrich.result;
+                await updatePrompt(group, prompt, result, prompt.rating);
+                state.enrich = { loading: false, error: "", result: "" };
+                render();
+            });
+            const discardBtn = el("button", "pm-secondary-btn", "Descartar");
+            discardBtn.addEventListener("click", () => {
+                state.enrich = { loading: false, error: "", result: "" };
+                render();
+            });
+            enrichActions.appendChild(discardBtn);
+            enrichActions.appendChild(useBtn);
+            enrichBox.appendChild(enrichActions);
+        }
+
+        right.appendChild(enrichBox);
+        return right;
     }
 
     function render() {
@@ -880,17 +1148,17 @@ function setupPromptManagerWidget(node) {
         delBtn.addEventListener("click", deleteGroup);
         groupRow.appendChild(delBtn);
 
-        const backupBtn = el("button", "pm-icon-btn pm-backup-btn", "\u{1F4BE}");
-        backupBtn.title = "Backup de todos os grupos";
-        backupBtn.addEventListener("click", (ev) => {
+        const settingsBtn = el("button", "pm-icon-btn pm-settings-btn", "⚙️");
+        settingsBtn.title = "Configurações (backup e IA)";
+        settingsBtn.addEventListener("click", (ev) => {
             ev.stopPropagation();
-            state.backupMenuOpen = !state.backupMenuOpen;
+            state.settingsMenuOpen = !state.settingsMenuOpen;
             render();
         });
-        groupRow.appendChild(backupBtn);
+        groupRow.appendChild(settingsBtn);
 
-        if (state.backupMenuOpen) {
-            groupRow.appendChild(renderBackupMenu());
+        if (state.settingsMenuOpen) {
+            groupRow.appendChild(renderSettingsMenu());
         }
 
         body.appendChild(groupRow);
@@ -917,8 +1185,11 @@ function setupPromptManagerWidget(node) {
         prefixRow.appendChild(prefixInput);
         body.appendChild(prefixRow);
 
+        const main = el("div", "pm-main");
+
         const content = el("div", "pm-content");
         const group = currentGroup();
+        const selectedPrompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
 
         if (!group) {
             const empty = el("div", "pm-empty");
@@ -938,12 +1209,15 @@ function setupPromptManagerWidget(node) {
             grid.appendChild(renderAddCard());
             content.appendChild(grid);
         }
-        body.appendChild(content);
+        main.appendChild(content);
+        main.appendChild(renderRightPanel(group, selectedPrompt));
+
+        body.appendChild(main);
     }
 
     document.addEventListener("click", (ev) => {
-        if (!root.contains(ev.target) && state.backupMenuOpen) {
-            state.backupMenuOpen = false;
+        if (!root.contains(ev.target) && state.settingsMenuOpen) {
+            state.settingsMenuOpen = false;
             render();
         }
     });
@@ -953,11 +1227,12 @@ function setupPromptManagerWidget(node) {
         hideOnZoom: false,
     });
 
-    if (node.size[0] < 420) node.size[0] = 420;
+    if (node.size[0] < 640) node.size[0] = 640;
     if (node.size[1] < 530) node.size[1] = 530;
 
     syncWidgets();
     loadGroups(state.groupId || undefined);
+    loadSettings();
 }
 
 app.registerExtension({

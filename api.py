@@ -4,6 +4,7 @@ from aiohttp import web
 from server import PromptServer
 
 from . import storage
+from .openrouter import OpenRouterError, enrich_prompt
 
 
 def _err(message: str, status: int = 400):
@@ -103,3 +104,44 @@ def setup_routes():
             return _err("Arquivo de backup inválido")
         groups = storage.restore_all(data, overwrite=bool(data.get("overwrite", False)))
         return web.json_response(groups)
+
+    @routes.get("/prompt_manager/settings")
+    async def pm_get_settings(request):
+        settings = storage.get_settings()
+        return web.json_response({
+            "has_api_key": bool(settings.get("api_key")),
+            "model": settings.get("model", storage.DEFAULT_MODEL),
+        })
+
+    @routes.post("/prompt_manager/settings")
+    async def pm_save_settings(request):
+        data = await _json_body(request)
+        if data is None:
+            return _err("JSON inválido")
+        settings = storage.save_settings(
+            api_key=data.get("api_key") if "api_key" in data else None,
+            model=data.get("model") if "model" in data else None,
+        )
+        return web.json_response({
+            "has_api_key": bool(settings.get("api_key")),
+            "model": settings.get("model", storage.DEFAULT_MODEL),
+        })
+
+    @routes.post("/prompt_manager/enrich")
+    async def pm_enrich(request):
+        data = await _json_body(request)
+        if data is None:
+            return _err("JSON inválido")
+        text = (data.get("text") or "").strip()
+        if not text:
+            return _err("Texto do prompt é obrigatório")
+        settings = storage.get_settings()
+        api_key = settings.get("api_key")
+        if not api_key:
+            return _err("Configure a chave da API do OpenRouter nas configurações antes de enriquecer.", 400)
+        model = settings.get("model") or storage.DEFAULT_MODEL
+        try:
+            enriched = await enrich_prompt(api_key, model, text)
+        except OpenRouterError as e:
+            return _err(str(e), 502)
+        return web.json_response({"text": enriched})

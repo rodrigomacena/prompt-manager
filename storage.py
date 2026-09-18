@@ -24,16 +24,20 @@ DB_PATH = os.path.join(_BASE_DIR, "prompt_manager_db.json")
 _lock = threading.Lock()
 _DEFAULT_DB: Dict[str, Any] = {"groups": []}
 
+DEFAULT_MODEL = "openai/gpt-4o-mini"
+_DEFAULT_SETTINGS: Dict[str, Any] = {"api_key": "", "model": DEFAULT_MODEL}
+
 
 def _read_raw() -> Dict[str, Any]:
     if not os.path.exists(DB_PATH):
-        return {"groups": []}
+        return {"groups": [], "settings": dict(_DEFAULT_SETTINGS)}
     with open(DB_PATH, "r", encoding="utf-8") as f:
         try:
             db = json.load(f)
         except json.JSONDecodeError:
-            return {"groups": []}
+            return {"groups": [], "settings": dict(_DEFAULT_SETTINGS)}
     db.setdefault("groups", [])
+    db.setdefault("settings", dict(_DEFAULT_SETTINGS))
     return db
 
 
@@ -204,3 +208,19 @@ def restore_all(data: Dict[str, Any], overwrite: bool = False) -> List[Dict[str,
         groups = [_import_group(db, group_data, overwrite) for group_data in data.get("groups", [])]
         _write_raw(db)
         return groups
+
+
+def get_settings() -> Dict[str, Any]:
+    return load_db()["settings"]
+
+
+def save_settings(api_key: Optional[str] = None, model: Optional[str] = None) -> Dict[str, Any]:
+    with _lock:
+        db = _read_raw()
+        settings = db["settings"]
+        if api_key is not None:
+            settings["api_key"] = api_key
+        if model is not None:
+            settings["model"] = model.strip() or DEFAULT_MODEL
+        _write_raw(db)
+        return settings
