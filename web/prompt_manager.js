@@ -995,6 +995,18 @@ function setupPromptManagerWidget(node) {
         if (!prompt) state.promptId = "";
     }
 
+    function refreshFromWidgets() {
+        state.groupId = groupIdWidget.value || "";
+        state.promptId = promptIdWidget.value || "";
+        state.mode = modeWidget.value || MODE_FIXED;
+        state.prefix = prefixWidget.value || "";
+        state.enrichInstructions = node.properties.enrichInstructions || "";
+        state.img2prompt.model = node.properties.img2promptModel || DEFAULT_VISION_MODEL;
+        state.img2prompt.instructions = node.properties.img2promptInstructions || "";
+        render();
+    }
+    node._pmRefreshFromWidgets = refreshFromWidgets;
+
     async function loadGroups(selectGroupId) {
         try {
             const res = await api.fetchApi("/prompt_manager/groups");
@@ -1792,6 +1804,13 @@ app.registerExtension({
             const result = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
             injectStyles();
             setupPromptManagerWidget(this);
+            return result;
+        };
+
+        const onConfigure = nodeType.prototype.onConfigure;
+        nodeType.prototype.onConfigure = function () {
+            const result = onConfigure ? onConfigure.apply(this, arguments) : undefined;
+            if (this._pmRefreshFromWidgets) this._pmRefreshFromWidgets();
             return result;
         };
     },
