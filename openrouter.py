@@ -26,8 +26,30 @@ class OpenRouterError(Exception):
 _models_cache = {"models": None, "fetched_at": 0.0}
 
 
+def _format_price(token_price) -> str:
+    try:
+        per_million = float(token_price or 0) * 1_000_000
+    except (TypeError, ValueError):
+        return "$?"
+    if per_million == 0:
+        return "$0"
+    if per_million < 0.01:
+        return f"${per_million:.4f}"
+    if per_million < 1:
+        return f"${per_million:.3f}"
+    return f"${per_million:.2f}"
+
+
+def _price_label(pricing: dict) -> str:
+    prompt_price = pricing.get("prompt")
+    completion_price = pricing.get("completion")
+    if prompt_price in (None, "0") and completion_price in (None, "0"):
+        return "Free"
+    return f"{_format_price(prompt_price)}/M in · {_format_price(completion_price)}/M out"
+
+
 async def list_models() -> list:
-    """Return every model OpenRouter currently offers, ``[{"id", "name"}]``, cached for an hour."""
+    """Return every model OpenRouter currently offers, ``[{"id", "name", "price"}]``, cached for an hour."""
     now = time.time()
     if _models_cache["models"] is not None and now - _models_cache["fetched_at"] < _MODELS_CACHE_TTL:
         return _models_cache["models"]
@@ -45,7 +67,11 @@ async def list_models() -> list:
             raise OpenRouterError(f"Failed to connect to OpenRouter: {e}")
 
     models = [
-        {"id": m["id"], "name": m.get("name") or m["id"]}
+        {
+            "id": m["id"],
+            "name": m.get("name") or m["id"],
+            "price": _price_label(m.get("pricing") or {}),
+        }
         for m in (data or {}).get("data", [])
         if m.get("id")
     ]

@@ -15,6 +15,13 @@ const MODE_LABELS = {
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
+function modelOptionLabel(m) {
+    const namePart = m.name && m.name !== m.id ? m.name : m.id;
+    const pricePart = m.price ? ` — ${m.price}` : "";
+    const idPart = m.name && m.name !== m.id ? ` (${m.id})` : "";
+    return `${namePart}${pricePart}${idPart}`;
+}
+
 const CSS_TEXT = `
 .pm-root {
     position: relative;
@@ -1099,7 +1106,7 @@ function setupPromptManagerWidget(node) {
             for (const m of state.models.list) {
                 const opt = document.createElement("option");
                 opt.value = m.id;
-                opt.textContent = m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id;
+                opt.textContent = modelOptionLabel(m);
                 if (m.id === currentModel) opt.selected = true;
                 modelSelect.appendChild(opt);
             }
