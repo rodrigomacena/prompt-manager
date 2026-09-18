@@ -244,17 +244,18 @@ const CSS_TEXT = `
     display: flex;
     flex-direction: column;
     gap: 6px;
-}
-.pm-preview-box {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    overflow-y: auto;
     border: 1px solid var(--border-color, #3a3a3a);
     border-radius: 4px;
     padding: 6px;
     background: rgba(0,0,0,0.15);
+}
+.pm-preview-box {
+    flex: 1;
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 .pm-preview-title {
     font-size: 10px;
@@ -291,10 +292,8 @@ const CSS_TEXT = `
     display: flex;
     flex-direction: column;
     gap: 6px;
-    border: 1px solid var(--border-color, #3a3a3a);
-    border-radius: 4px;
-    padding: 6px;
-    background: rgba(0,0,0,0.15);
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color, #3a3a3a);
 }
 .pm-enrich-btn {
     width: 100%;
