@@ -22,6 +22,14 @@ function modelOptionLabel(m) {
     return `${namePart}${pricePart}${idPart}`;
 }
 
+function combineWithPrefix(prefix, text) {
+    const p = (prefix || "").trim();
+    const t = text || "";
+    if (!p) return t;
+    if (!t) return p;
+    return `${p}, ${t}`;
+}
+
 const CSS_TEXT = `
 .pm-root {
     position: relative;
@@ -784,6 +792,16 @@ function setupPromptManagerWidget(node) {
         return state.groups.find((g) => g.id === state.groupId) || null;
     }
 
+    function updatePreviewText() {
+        const previewEl = root.querySelector(".pm-preview-text");
+        if (!previewEl || previewEl.classList.contains("pm-preview-empty")) return;
+        const group = currentGroup();
+        const prompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
+        if (!prompt) return;
+        const baseText = state.previewOverride !== null ? state.previewOverride : prompt.text;
+        previewEl.textContent = combineWithPrefix(state.prefix, baseText);
+    }
+
     function syncWidgets() {
         const group = currentGroup();
         const prompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
@@ -1133,10 +1151,11 @@ function setupPromptManagerWidget(node) {
         const right = el("div", "pm-right");
 
         const preview = el("div", "pm-preview-box");
-        preview.appendChild(el("div", "pm-preview-title", "Selected prompt"));
+        preview.appendChild(el("div", "pm-preview-title", "Selected prompt (with prefix)"));
         const hasOverride = state.previewOverride !== null;
         if (prompt) {
-            preview.appendChild(el("div", "pm-preview-text", hasOverride ? state.previewOverride : prompt.text));
+            const baseText = hasOverride ? state.previewOverride : prompt.text;
+            preview.appendChild(el("div", "pm-preview-text", combineWithPrefix(state.prefix, baseText)));
         } else {
             preview.appendChild(el("div", "pm-preview-text pm-preview-empty", "No prompt selected."));
         }
@@ -1272,6 +1291,7 @@ function setupPromptManagerWidget(node) {
         prefixInput.addEventListener("input", () => {
             state.prefix = prefixInput.value;
             prefixWidget.value = state.prefix;
+            updatePreviewText();
         });
         prefixRow.appendChild(prefixInput);
         body.appendChild(prefixRow);
