@@ -89,25 +89,17 @@ def setup_routes():
             return _err("Prompt não encontrado", 404)
         return web.json_response({"ok": True})
 
-    @routes.get("/prompt_manager/groups/{group_id}/backup")
-    async def pm_backup_group(request):
-        db = storage.load_db()
-        group = storage.get_group(db, request.match_info["group_id"])
-        if group is None:
-            return _err("Grupo não encontrado", 404)
-        payload = {
-            "name": group["name"],
-            "prompts": [{"text": p["text"], "rating": p["rating"]} for p in group["prompts"]],
-        }
-        safe_name = "".join(c for c in group["name"] if c.isalnum() or c in " -_").strip() or "grupo"
+    @routes.get("/prompt_manager/backup")
+    async def pm_backup_all(request):
+        payload = storage.backup_all()
         response = web.json_response(payload)
-        response.headers["Content-Disposition"] = f'attachment; filename="{safe_name}.promptgroup.json"'
+        response.headers["Content-Disposition"] = 'attachment; filename="prompt_manager_backup.json"'
         return response
 
-    @routes.post("/prompt_manager/groups/restore")
-    async def pm_restore_group(request):
+    @routes.post("/prompt_manager/restore")
+    async def pm_restore_all(request):
         data = await _json_body(request)
-        if data is None or "prompts" not in data:
+        if data is None or "groups" not in data:
             return _err("Arquivo de backup inválido")
-        group = storage.restore_group(data, overwrite=bool(data.get("overwrite", False)))
-        return web.json_response(group)
+        groups = storage.restore_all(data, overwrite=bool(data.get("overwrite", False)))
+        return web.json_response(groups)

@@ -21,32 +21,39 @@ class PromptManagerNode:
                 "group_id": ("STRING", {"default": "", "multiline": False}),
                 "prompt_id": ("STRING", {"default": "", "multiline": False}),
                 "prompt_text": ("STRING", {"default": "", "multiline": True}),
+                "prefix": ("STRING", {"default": "", "multiline": True}),
             },
         }
 
-    def run(self, mode, group_id, prompt_id, prompt_text):
+    def run(self, mode, group_id, prompt_id, prompt_text, prefix):
         db = storage.load_db()
         group = storage.get_group(db, group_id) if group_id else None
 
         if mode == MODE_RANDOM:
-            if group and group["prompts"]:
-                return (random.choice(group["prompts"])["text"],)
-            return (prompt_text,)
+            text = random.choice(group["prompts"])["text"] if group and group["prompts"] else prompt_text
+        elif mode == MODE_SEQUENTIAL:
+            nxt = storage.get_next_sequential(group_id) if group and group["prompts"] else None
+            text = nxt["text"] if nxt else prompt_text
+        else:
+            text = prompt_text
 
-        if mode == MODE_SEQUENTIAL:
-            if group and group["prompts"]:
-                nxt = storage.get_next_sequential(group_id)
-                if nxt:
-                    return (nxt["text"],)
-            return (prompt_text,)
-
-        return (prompt_text,)
+        return (_combine(prefix, text),)
 
     @classmethod
-    def IS_CHANGED(cls, mode, group_id, prompt_id, prompt_text):
+    def IS_CHANGED(cls, mode, group_id, prompt_id, prompt_text, prefix):
         if mode in (MODE_RANDOM, MODE_SEQUENTIAL):
             return float("nan")
-        return f"{group_id}:{prompt_id}:{prompt_text}"
+        return f"{group_id}:{prompt_id}:{prompt_text}:{prefix}"
+
+
+def _combine(prefix, text):
+    prefix = (prefix or "").strip()
+    text = text or ""
+    if not prefix:
+        return text
+    if not text:
+        return prefix
+    return f"{prefix}, {text}"
 
 
 NODE_CLASS_MAPPINGS = {

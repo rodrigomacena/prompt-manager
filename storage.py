@@ -152,35 +152,55 @@ def get_next_sequential(group_id: str) -> Optional[Dict[str, Any]]:
         return prompt
 
 
-def restore_group(data: Dict[str, Any], overwrite: bool = False) -> Dict[str, Any]:
-    """Import a group backup ``{"name": ..., "prompts": [{"text", "rating"}]}``."""
+def _import_group(db: Dict[str, Any], data: Dict[str, Any], overwrite: bool) -> Dict[str, Any]:
+    """Merge a single group backup ``{"name", "prompts": [{"text", "rating"}]}`` into ``db`` in place."""
+    name = (data.get("name") or "Grupo restaurado").strip() or "Grupo restaurado"
+    prompts_in = data.get("prompts", [])
+    imported_prompts = [
+        {
+            "id": uuid.uuid4().hex,
+            "text": p.get("text", ""),
+            "rating": max(0, min(5, int(p.get("rating", 0) or 0))),
+        }
+        for p in prompts_in
+    ]
+
+    existing = next((g for g in db["groups"] if g["name"] == name), None)
+    if existing and overwrite:
+        existing["prompts"] = imported_prompts
+        existing["sequential_index"] = 0
+        return existing
+
+    if existing:
+        name = f"{name} (restaurado)"
+    group = {
+        "id": uuid.uuid4().hex,
+        "name": name,
+        "sequential_index": 0,
+        "prompts": imported_prompts,
+    }
+    db["groups"].append(group)
+    return group
+
+
+def backup_all() -> Dict[str, Any]:
+    """Export every group as ``{"groups": [{"name", "prompts": [{"text", "rating"}]}]}``."""
+    db = load_db()
+    return {
+        "groups": [
+            {
+                "name": g["name"],
+                "prompts": [{"text": p["text"], "rating": p["rating"]} for p in g["prompts"]],
+            }
+            for g in db["groups"]
+        ]
+    }
+
+
+def restore_all(data: Dict[str, Any], overwrite: bool = False) -> List[Dict[str, Any]]:
+    """Import every group from a full backup ``{"groups": [...]}``."""
     with _lock:
         db = _read_raw()
-        name = (data.get("name") or "Grupo restaurado").strip() or "Grupo restaurado"
-        prompts_in = data.get("prompts", [])
-        imported_prompts = [
-            {
-                "id": uuid.uuid4().hex,
-                "text": p.get("text", ""),
-                "rating": max(0, min(5, int(p.get("rating", 0) or 0))),
-            }
-            for p in prompts_in
-        ]
-
-        existing = next((g for g in db["groups"] if g["name"] == name), None)
-        if existing and overwrite:
-            existing["prompts"] = imported_prompts
-            existing["sequential_index"] = 0
-            group = existing
-        else:
-            if existing:
-                name = f"{name} (restaurado)"
-            group = {
-                "id": uuid.uuid4().hex,
-                "name": name,
-                "sequential_index": 0,
-                "prompts": imported_prompts,
-            }
-            db["groups"].append(group)
+        groups = [_import_group(db, group_data, overwrite) for group_data in data.get("groups", [])]
         _write_raw(db)
-        return group
+        return groups

@@ -29,28 +29,16 @@ const CSS_TEXT = `
     padding: 6px;
     overflow: hidden;
 }
-.pm-toolbar {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    height: 16px;
-}
 .pm-backup-btn {
-    background: transparent;
-    border: none;
-    color: var(--descrip-text, #999);
-    opacity: 0.45;
-    cursor: pointer;
-    font-size: 13px;
-    padding: 0 4px;
-    line-height: 1;
+    opacity: 0.5;
     transition: opacity 0.15s ease;
 }
 .pm-backup-btn:hover { opacity: 1; }
 .pm-backup-menu {
     position: absolute;
-    top: 20px;
-    right: 6px;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
     background: var(--comfy-menu-bg, #2b2b2b);
     border: 1px solid var(--border-color, #444);
     border-radius: 4px;
@@ -82,6 +70,7 @@ const CSS_TEXT = `
     display: flex;
     align-items: center;
     gap: 4px;
+    position: relative;
 }
 .pm-select {
     flex: 1;
@@ -191,22 +180,6 @@ const CSS_TEXT = `
     white-space: pre-wrap;
     color: var(--input-text, #ddd);
 }
-.pm-card-delete {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    background: rgba(0,0,0,0.35);
-    border: none;
-    color: #ddd;
-    width: 16px;
-    height: 16px;
-    line-height: 14px;
-    border-radius: 3px;
-    cursor: pointer;
-    font-size: 11px;
-    opacity: 0.55;
-}
-.pm-card-delete:hover { opacity: 1; background: #c0392b; }
 .pm-stars {
     display: flex;
     gap: 1px;
@@ -274,6 +247,32 @@ const CSS_TEXT = `
     color: var(--descrip-text, #888);
     font-size: 10px;
 }
+.pm-prefix-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.pm-prefix-label {
+    font-size: 10px;
+    color: var(--descrip-text, #888);
+}
+.pm-prefix-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 32px;
+    max-height: 90px;
+    background: var(--comfy-input-bg, #232323);
+    color: var(--input-text, #ddd);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 11px;
+    font-family: inherit;
+}
+.pm-modal-actions-split {
+    justify-content: space-between;
+}
 .pm-modal-overlay {
     position: absolute;
     inset: 0;
@@ -340,6 +339,18 @@ const CSS_TEXT = `
     padding: 0 2px;
 }
 .pm-view-close:hover { color: var(--input-text, #ddd); }
+.pm-view-textarea {
+    resize: vertical;
+    min-height: 160px;
+    background: var(--comfy-input-bg, #232323);
+    color: var(--input-text, #ddd);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 12px;
+    font-family: inherit;
+    line-height: 1.5;
+}
 .pm-view-text {
     white-space: pre-wrap;
     word-break: break-word;
@@ -386,30 +397,21 @@ function setupPromptManagerWidget(node) {
     const groupIdWidget = node.widgets.find((w) => w.name === "group_id");
     const promptIdWidget = node.widgets.find((w) => w.name === "prompt_id");
     const promptTextWidget = node.widgets.find((w) => w.name === "prompt_text");
+    const prefixWidget = node.widgets.find((w) => w.name === "prefix");
 
-    [modeWidget, groupIdWidget, promptIdWidget, promptTextWidget].forEach((w) => hideWidget(node, w));
+    [modeWidget, groupIdWidget, promptIdWidget, promptTextWidget, prefixWidget].forEach((w) => hideWidget(node, w));
 
     const state = {
         groups: [],
         groupId: groupIdWidget.value || "",
         promptId: promptIdWidget.value || "",
         mode: modeWidget.value || MODE_FIXED,
+        prefix: prefixWidget.value || "",
         addingPrompt: false,
         backupMenuOpen: false,
     };
 
     const root = el("div", "pm-root");
-    const toolbar = el("div", "pm-toolbar");
-    const backupBtn = el("button", "pm-backup-btn", "\u{1F4BE}");
-    backupBtn.title = "Backup do grupo";
-    backupBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        state.backupMenuOpen = !state.backupMenuOpen;
-        render();
-    });
-    toolbar.appendChild(backupBtn);
-    root.appendChild(toolbar);
-
     const body = el("div", "pm-body");
     root.appendChild(body);
 
@@ -469,47 +471,112 @@ function setupPromptManagerWidget(node) {
     const pmConfirm = (message) => showModal({ message, mode: "confirm" });
     const pmAlert = (message) => showModal({ message, mode: "alert" });
 
-    function showPromptViewModal(prompt) {
+    function showPromptViewModal(group, prompt) {
         const overlay = el("div", "pm-modal-overlay");
         const box = el("div", "pm-modal-box pm-view-box");
+        overlay.appendChild(box);
 
-        const header = el("div", "pm-view-header");
-        header.appendChild(el("div", "pm-view-title", "Prompt completo"));
-        const closeBtn = el("button", "pm-view-close", "×");
-        closeBtn.title = "Fechar";
-        closeBtn.addEventListener("click", () => overlay.remove());
-        header.appendChild(closeBtn);
-        box.appendChild(header);
+        const close = () => overlay.remove();
 
-        box.appendChild(el("div", "pm-view-text", prompt.text));
+        function renderView() {
+            box.innerHTML = "";
 
-        const starsRow = el("div", "pm-stars");
-        renderStars(starsRow, prompt.rating, () => {});
-        box.appendChild(starsRow);
+            const header = el("div", "pm-view-header");
+            header.appendChild(el("div", "pm-view-title", "Prompt completo"));
+            const closeBtn = el("button", "pm-view-close", "×");
+            closeBtn.title = "Fechar";
+            closeBtn.addEventListener("click", close);
+            header.appendChild(closeBtn);
+            box.appendChild(header);
 
-        const actions = el("div", "pm-modal-actions");
-        const copyBtn = el("button", "pm-secondary-btn", "Copiar");
-        copyBtn.addEventListener("click", async () => {
-            try {
-                await navigator.clipboard.writeText(prompt.text);
-                copyBtn.textContent = "Copiado!";
-                setTimeout(() => (copyBtn.textContent = "Copiar"), 1200);
-            } catch (e) {
-                console.error("PromptManager: falha ao copiar", e);
-            }
-        });
-        const closeBtn2 = el("button", "pm-primary-btn", "Fechar");
-        closeBtn2.addEventListener("click", () => overlay.remove());
-        actions.appendChild(copyBtn);
-        actions.appendChild(closeBtn2);
-        box.appendChild(actions);
+            box.appendChild(el("div", "pm-view-text", prompt.text));
+
+            const starsRow = el("div", "pm-stars");
+            renderStars(starsRow, prompt.rating, () => {});
+            box.appendChild(starsRow);
+
+            const actions = el("div", "pm-modal-actions pm-modal-actions-split");
+
+            const leftGroup = el("div", "pm-editor-buttons");
+            const deleteBtn = el("button", "pm-secondary-btn", "Excluir");
+            deleteBtn.addEventListener("click", async () => {
+                if (await deletePrompt(group, prompt)) close();
+            });
+            leftGroup.appendChild(deleteBtn);
+
+            const rightGroup = el("div", "pm-editor-buttons");
+            const editBtn = el("button", "pm-secondary-btn", "Editar");
+            editBtn.addEventListener("click", renderEdit);
+            const copyBtn = el("button", "pm-secondary-btn", "Copiar");
+            copyBtn.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(prompt.text);
+                    copyBtn.textContent = "Copiado!";
+                    setTimeout(() => (copyBtn.textContent = "Copiar"), 1200);
+                } catch (e) {
+                    console.error("PromptManager: falha ao copiar", e);
+                }
+            });
+            const closeBtn2 = el("button", "pm-primary-btn", "Fechar");
+            closeBtn2.addEventListener("click", close);
+            rightGroup.appendChild(editBtn);
+            rightGroup.appendChild(copyBtn);
+            rightGroup.appendChild(closeBtn2);
+
+            actions.appendChild(leftGroup);
+            actions.appendChild(rightGroup);
+            box.appendChild(actions);
+        }
+
+        function renderEdit() {
+            box.innerHTML = "";
+
+            box.appendChild(el("div", "pm-view-title", "Editar prompt"));
+
+            const textarea = document.createElement("textarea");
+            textarea.className = "pm-view-textarea";
+            textarea.value = prompt.text;
+            box.appendChild(textarea);
+
+            let draftRating = prompt.rating;
+            const starsRow = el("div", "pm-stars");
+            const updateStars = () => {
+                renderStars(starsRow, draftRating, (r) => {
+                    draftRating = r === draftRating ? 0 : r;
+                    updateStars();
+                });
+            };
+            updateStars();
+            box.appendChild(starsRow);
+
+            const actions = el("div", "pm-modal-actions");
+            const cancelBtn = el("button", "pm-secondary-btn", "Cancelar");
+            cancelBtn.addEventListener("click", renderView);
+            const saveBtn = el("button", "pm-primary-btn", "Salvar");
+            saveBtn.addEventListener("click", async () => {
+                const text = textarea.value.trim();
+                if (!text) {
+                    textarea.focus();
+                    return;
+                }
+                await updatePrompt(group, prompt, text, draftRating);
+                prompt.text = text;
+                prompt.rating = draftRating;
+                renderView();
+            });
+            actions.appendChild(cancelBtn);
+            actions.appendChild(saveBtn);
+            box.appendChild(actions);
+
+            setTimeout(() => textarea.focus(), 0);
+        }
 
         overlay.addEventListener("click", (ev) => {
-            if (ev.target === overlay) overlay.remove();
+            if (ev.target === overlay) close();
         });
 
-        overlay.appendChild(box);
         root.appendChild(overlay);
+        renderView();
     }
 
     const fileInput = el("input");
@@ -523,14 +590,14 @@ function setupPromptManagerWidget(node) {
         try {
             const text = await file.text();
             const data = JSON.parse(text);
-            const res = await api.fetchApi("/prompt_manager/groups/restore", {
+            const res = await api.fetchApi("/prompt_manager/restore", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(data),
             });
             if (!res.ok) throw new Error(await res.text());
-            const group = await res.json();
-            await loadGroups(group.id);
+            const groups = await res.json();
+            await loadGroups(groups[0] ? groups[0].id : undefined);
         } catch (e) {
             console.error("PromptManager: falha ao restaurar backup", e);
             await pmAlert("Não foi possível restaurar o backup. Verifique o arquivo.");
@@ -549,6 +616,7 @@ function setupPromptManagerWidget(node) {
         groupIdWidget.value = state.groupId;
         promptIdWidget.value = prompt ? prompt.id : "";
         promptTextWidget.value = prompt ? prompt.text : "";
+        prefixWidget.value = state.prefix;
         if (!prompt) state.promptId = "";
     }
 
@@ -607,8 +675,18 @@ function setupPromptManagerWidget(node) {
     }
 
     async function deletePrompt(group, prompt) {
-        if (!(await pmConfirm("Excluir este prompt?"))) return;
+        if (!(await pmConfirm("Excluir este prompt?"))) return false;
         await api.fetchApi(`/prompt_manager/groups/${group.id}/prompts/${prompt.id}`, { method: "DELETE" });
+        await loadGroups(group.id);
+        return true;
+    }
+
+    async function updatePrompt(group, prompt, text, rating) {
+        await api.fetchApi(`/prompt_manager/groups/${group.id}/prompts/${prompt.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, rating }),
+        });
         await loadGroups(group.id);
     }
 
@@ -655,22 +733,18 @@ function setupPromptManagerWidget(node) {
         }
     }
 
+    function sortedPrompts(group) {
+        return [...group.prompts].sort((a, b) => b.rating - a.rating);
+    }
+
     function renderCard(group, prompt) {
         const card = el("div", "pm-card" + (prompt.id === state.promptId ? " pm-selected" : ""));
         card.title = prompt.text;
         card.addEventListener("click", () => selectPrompt(prompt));
         card.addEventListener("dblclick", (ev) => {
             ev.stopPropagation();
-            showPromptViewModal(prompt);
+            showPromptViewModal(group, prompt);
         });
-
-        const del = el("button", "pm-card-delete", "×");
-        del.title = "Excluir prompt";
-        del.addEventListener("click", (ev) => {
-            ev.stopPropagation();
-            deletePrompt(group, prompt);
-        });
-        card.appendChild(del);
 
         card.appendChild(el("div", "pm-card-text", prompt.text));
 
@@ -737,16 +811,14 @@ function setupPromptManagerWidget(node) {
 
     function renderBackupMenu() {
         const menu = el("div", "pm-backup-menu");
-        const group = currentGroup();
 
-        const downloadBtn = el("button", "", "⬇ Baixar backup do grupo");
-        if (!group) downloadBtn.disabled = true;
+        const downloadBtn = el("button", "", "⬇ Baixar backup de todos os grupos");
+        if (!state.groups.length) downloadBtn.disabled = true;
         downloadBtn.addEventListener("click", () => {
-            if (!group) return;
-            const url = api.apiURL(`/prompt_manager/groups/${group.id}/backup`);
+            const url = api.apiURL("/prompt_manager/backup");
             const a = document.createElement("a");
             a.href = url;
-            a.download = `${group.name}.promptgroup.json`;
+            a.download = "prompt_manager_backup.json";
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -808,6 +880,19 @@ function setupPromptManagerWidget(node) {
         delBtn.addEventListener("click", deleteGroup);
         groupRow.appendChild(delBtn);
 
+        const backupBtn = el("button", "pm-icon-btn pm-backup-btn", "\u{1F4BE}");
+        backupBtn.title = "Backup de todos os grupos";
+        backupBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            state.backupMenuOpen = !state.backupMenuOpen;
+            render();
+        });
+        groupRow.appendChild(backupBtn);
+
+        if (state.backupMenuOpen) {
+            groupRow.appendChild(renderBackupMenu());
+        }
+
         body.appendChild(groupRow);
 
         const modeBar = el("div", "pm-mode-bar");
@@ -817,6 +902,20 @@ function setupPromptManagerWidget(node) {
             modeBar.appendChild(btn);
         }
         body.appendChild(modeBar);
+
+        const prefixRow = el("div", "pm-prefix-row");
+        prefixRow.appendChild(el("div", "pm-prefix-label", "Prefixo (sempre inserido antes do prompt)"));
+        const prefixInput = document.createElement("textarea");
+        prefixInput.className = "pm-prefix-input";
+        prefixInput.placeholder = "Ex: masterpiece, best quality";
+        prefixInput.rows = 2;
+        prefixInput.value = state.prefix;
+        prefixInput.addEventListener("input", () => {
+            state.prefix = prefixInput.value;
+            prefixWidget.value = state.prefix;
+        });
+        prefixRow.appendChild(prefixInput);
+        body.appendChild(prefixRow);
 
         const content = el("div", "pm-content");
         const group = currentGroup();
@@ -833,18 +932,13 @@ function setupPromptManagerWidget(node) {
                 content.appendChild(renderEditor(group));
             }
             const grid = el("div", "pm-grid");
-            for (const prompt of group.prompts) {
+            for (const prompt of sortedPrompts(group)) {
                 grid.appendChild(renderCard(group, prompt));
             }
             grid.appendChild(renderAddCard());
             content.appendChild(grid);
         }
         body.appendChild(content);
-
-        root.querySelectorAll(".pm-backup-menu").forEach((m) => m.remove());
-        if (state.backupMenuOpen) {
-            root.appendChild(renderBackupMenu());
-        }
     }
 
     document.addEventListener("click", (ev) => {
@@ -855,12 +949,12 @@ function setupPromptManagerWidget(node) {
     });
 
     node.addDOMWidget("prompt_manager_ui", "prompt_manager", root, {
-        getMinHeight: () => 420,
+        getMinHeight: () => 470,
         hideOnZoom: false,
     });
 
     if (node.size[0] < 420) node.size[0] = 420;
-    if (node.size[1] < 480) node.size[1] = 480;
+    if (node.size[1] < 530) node.size[1] = 530;
 
     syncWidgets();
     loadGroups(state.groupId || undefined);
