@@ -1,0 +1,14 @@
+[project]
+name = "prompt-manager"
+description = "Gerencie e reutilize seus prompts favoritos em grupos, direto de um nó do ComfyUI."
+version = "0.1.0"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+
+[project.urls]
+Repository = "https://github.com/rodrigomacena/prompt-manager"
+
+[tool.comfy]
+PublisherId = "rodrigomacena"
+DisplayName = "Prompt Manager"
+Icon = ""
