@@ -314,6 +314,46 @@ const CSS_TEXT = `
     justify-content: flex-end;
     gap: 6px;
 }
+.pm-view-box {
+    width: 90%;
+    max-width: 360px;
+    max-height: 85%;
+}
+.pm-view-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+.pm-view-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--input-text, #ddd);
+}
+.pm-view-close {
+    background: transparent;
+    border: none;
+    color: var(--descrip-text, #999);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+}
+.pm-view-close:hover { color: var(--input-text, #ddd); }
+.pm-view-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--input-text, #ddd);
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    padding: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    user-select: text;
+}
 `;
 
 let stylesInjected = false;
@@ -428,6 +468,49 @@ function setupPromptManagerWidget(node) {
     const pmPrompt = (message, defaultValue) => showModal({ message, defaultValue, mode: "prompt" });
     const pmConfirm = (message) => showModal({ message, mode: "confirm" });
     const pmAlert = (message) => showModal({ message, mode: "alert" });
+
+    function showPromptViewModal(prompt) {
+        const overlay = el("div", "pm-modal-overlay");
+        const box = el("div", "pm-modal-box pm-view-box");
+
+        const header = el("div", "pm-view-header");
+        header.appendChild(el("div", "pm-view-title", "Prompt completo"));
+        const closeBtn = el("button", "pm-view-close", "×");
+        closeBtn.title = "Fechar";
+        closeBtn.addEventListener("click", () => overlay.remove());
+        header.appendChild(closeBtn);
+        box.appendChild(header);
+
+        box.appendChild(el("div", "pm-view-text", prompt.text));
+
+        const starsRow = el("div", "pm-stars");
+        renderStars(starsRow, prompt.rating, () => {});
+        box.appendChild(starsRow);
+
+        const actions = el("div", "pm-modal-actions");
+        const copyBtn = el("button", "pm-secondary-btn", "Copiar");
+        copyBtn.addEventListener("click", async () => {
+            try {
+                await navigator.clipboard.writeText(prompt.text);
+                copyBtn.textContent = "Copiado!";
+                setTimeout(() => (copyBtn.textContent = "Copiar"), 1200);
+            } catch (e) {
+                console.error("PromptManager: falha ao copiar", e);
+            }
+        });
+        const closeBtn2 = el("button", "pm-primary-btn", "Fechar");
+        closeBtn2.addEventListener("click", () => overlay.remove());
+        actions.appendChild(copyBtn);
+        actions.appendChild(closeBtn2);
+        box.appendChild(actions);
+
+        overlay.addEventListener("click", (ev) => {
+            if (ev.target === overlay) overlay.remove();
+        });
+
+        overlay.appendChild(box);
+        root.appendChild(overlay);
+    }
 
     const fileInput = el("input");
     fileInput.type = "file";
@@ -576,6 +659,10 @@ function setupPromptManagerWidget(node) {
         const card = el("div", "pm-card" + (prompt.id === state.promptId ? " pm-selected" : ""));
         card.title = prompt.text;
         card.addEventListener("click", () => selectPrompt(prompt));
+        card.addEventListener("dblclick", (ev) => {
+            ev.stopPropagation();
+            showPromptViewModal(prompt);
+        });
 
         const del = el("button", "pm-card-delete", "×");
         del.title = "Excluir prompt";
