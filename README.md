@@ -11,8 +11,8 @@ Custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) to save you
 - **Output mode**: choose between `Fixed` (the manually selected prompt), `Random` (picks a prompt from the group on every run) or `Sequential` (cycles through the group's prompts in order, one per run).
 - **Prefix**: a text box always prepended to the node's output, separated from the prompt by a blank line (`prefix\n\nprompt`).
 - **AI enrichment (OpenRouter)**: send the selected prompt to any OpenRouter model to expand it, with an optional custom instruction (e.g. "expand into 2 paragraphs, add more environment detail"). The result previews before you decide to save it over the stored prompt.
-- **Image to prompt**: upload or paste an image (never saved to disk, only sent to the AI) and convert it into a prompt with a vision-capable OpenRouter model of your choice, with its own optional instructions (e.g. "describe only the scenery"). Once you have a result, an adjustment field lets you ask the AI to fix or add something to it (text-only, the image isn't resent). A "Clear image & text" button resets the process.
-- **Backup & restore**: a gear icon next to the group controls backs up or restores every group at once as a `.json` file, and holds the OpenRouter API key / model settings.
+- **Image to prompt**: upload or paste an image (never saved to disk, only sent to the AI) and convert it into a prompt with the Image Recognition model set in the gear menu, with its own optional instructions (e.g. "describe only the scenery"). Once you have a result, an adjustment field lets you ask the AI to fix or add something to it (text-only, the image isn't resent), and a "Save prompt" button adds it straight into the active group. A "Clear image & text" button resets the process.
+- **Backup & restore**: a gear icon next to the group controls backs up or restores every group at once as a `.json` file, and holds the OpenRouter API key and both model choices (Enrichment model, Image Recognition model), saved together with one button.
 
 ## Installation
 

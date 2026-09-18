@@ -232,6 +232,9 @@ const CSS_TEXT = `
 .pm-content {
     flex: 1.3;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     overflow-y: auto;
     border: 1px solid var(--border-color, #3a3a3a);
     border-radius: 4px;
@@ -341,7 +344,7 @@ const CSS_TEXT = `
     align-items: center;
     justify-content: center;
     gap: 8px;
-    height: 100%;
+    flex: 1;
     color: var(--descrip-text, #888);
     text-align: center;
     padding: 10px;
@@ -638,16 +641,6 @@ const CSS_TEXT = `
     height: 1px;
     background: var(--border-color, #3a3a3a);
     margin: 2px 0;
-}
-.pm-model-select {
-    width: 100%;
-    box-sizing: border-box;
-    background: var(--comfy-input-bg, #232323);
-    color: var(--input-text, #ddd);
-    border: 1px solid var(--border-color, #444);
-    border-radius: 4px;
-    padding: 4px 6px;
-    font-size: 11px;
 }
 `;
 
@@ -1185,12 +1178,26 @@ function setupPromptManagerWidget(node) {
     }
 
     async function addPrompt(group, text, rating) {
-        await api.fetchApi(`/prompt_manager/groups/${group.id}/prompts`, {
+        const res = await api.fetchApi(`/prompt_manager/groups/${group.id}/prompts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text, rating }),
         });
+        const prompt = await res.json();
         await loadGroups(group.id);
+        return prompt;
+    }
+
+    async function saveImagePromptToGroup() {
+        const group = currentGroup();
+        const text = (state.img2prompt.result || "").trim();
+        if (!group || !text) return;
+        const prompt = await addPrompt(group, text, 0);
+        state.promptId = prompt.id;
+        state.enrich = { loading: false, error: "", result: "" };
+        state.previewOverride = null;
+        syncWidgets();
+        render();
     }
 
     function selectPrompt(prompt) {
@@ -1333,7 +1340,7 @@ function setupPromptManagerWidget(node) {
         menu.appendChild(keyField);
 
         const modelField = el("div", "pm-settings-field");
-        modelField.appendChild(el("label", null, `Model${state.models.list.length ? ` (${state.models.list.length} available)` : ""}`));
+        modelField.appendChild(el("label", null, `Enrichment model${state.models.list.length ? ` (${state.models.list.length} available)` : ""}`));
 
         const currentModel = state.settings.model || DEFAULT_MODEL;
         let modelSelect = null;
@@ -1345,10 +1352,26 @@ function setupPromptManagerWidget(node) {
         }
         menu.appendChild(modelField);
 
+        const visionField = el("div", "pm-settings-field");
+        const visionModels = state.models.list.filter((m) => m.vision);
+        visionField.appendChild(el("label", null, `Image Recognition model${visionModels.length ? ` (${visionModels.length} available)` : ""}`));
+        let visionSelect = null;
+        if (state.models.loading && !state.models.list.length) {
+            visionField.appendChild(el("div", "pm-settings-hint", "Loading models..."));
+        } else {
+            visionSelect = buildModelSelect(visionModels, state.img2prompt.model);
+            visionField.appendChild(visionSelect);
+        }
+        menu.appendChild(visionField);
+
         const saveSettingsBtn = el("button", "pm-primary-btn pm-settings-save", "Save settings");
         saveSettingsBtn.addEventListener("click", async () => {
             saveSettingsBtn.textContent = "Saving...";
             const ok = await saveSettings(keyInput.value || undefined, modelSelect ? modelSelect.value : undefined);
+            if (visionSelect) {
+                state.img2prompt.model = visionSelect.value;
+                node.properties.img2promptModel = visionSelect.value;
+            }
             saveSettingsBtn.textContent = ok ? "Saved!" : "Failed";
             setTimeout(() => {
                 state.settingsMenuOpen = false;
@@ -1393,15 +1416,6 @@ function setupPromptManagerWidget(node) {
         convertBtn.addEventListener("click", convertImageToPrompt);
         panel.appendChild(convertBtn);
 
-        panel.appendChild(el("div", "pm-prefix-label", "Model"));
-        const modelSelect = buildModelSelect(state.models.list.filter((m) => m.vision), img.model);
-        modelSelect.className = "pm-model-select";
-        modelSelect.addEventListener("change", () => {
-            state.img2prompt.model = modelSelect.value;
-            node.properties.img2promptModel = modelSelect.value;
-        });
-        panel.appendChild(modelSelect);
-
         const instructionsField = document.createElement("textarea");
         instructionsField.className = "pm-enrich-instructions";
         instructionsField.placeholder = "Instructions (optional). E.g.: describe only the scenery in this image.";
@@ -1417,6 +1431,13 @@ function setupPromptManagerWidget(node) {
             panel.appendChild(el("div", "pm-img2prompt-divider"));
             panel.appendChild(el("div", "pm-preview-title", "Result"));
             panel.appendChild(el("div", "pm-img2prompt-result", img.result));
+
+            const activeGroup = currentGroup();
+            const saveBtn = el("button", "pm-primary-btn", activeGroup ? `Save prompt to "${activeGroup.name}"` : "Save prompt");
+            saveBtn.disabled = !activeGroup;
+            saveBtn.title = activeGroup ? "" : "Select or create a group first";
+            saveBtn.addEventListener("click", saveImagePromptToGroup);
+            panel.appendChild(saveBtn);
 
             let adjustBtn;
             const adjustField = document.createElement("textarea");
@@ -1582,6 +1603,13 @@ function setupPromptManagerWidget(node) {
         }
         body.appendChild(modeBar);
 
+        const main = el("div", "pm-main");
+        main.appendChild(renderImageToPromptPanel());
+
+        const content = el("div", "pm-content");
+        const group = currentGroup();
+        const selectedPrompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
+
         const prefixRow = el("div", "pm-prefix-row");
         prefixRow.appendChild(el("div", "pm-prefix-label", "Prefix (always inserted before the prompt)"));
         const prefixInput = document.createElement("textarea");
@@ -1595,14 +1623,7 @@ function setupPromptManagerWidget(node) {
             updatePreviewText();
         });
         prefixRow.appendChild(prefixInput);
-        body.appendChild(prefixRow);
-
-        const main = el("div", "pm-main");
-        main.appendChild(renderImageToPromptPanel());
-
-        const content = el("div", "pm-content");
-        const group = currentGroup();
-        const selectedPrompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
+        content.appendChild(prefixRow);
 
         if (!group) {
             const empty = el("div", "pm-empty");
