@@ -333,9 +333,12 @@ function el(tag, className, text) {
 }
 
 function hideWidget(node, widget) {
-    if (!widget || widget.type === "hidden") return;
+    if (!widget) return;
     widget.type = "hidden";
     widget.computeSize = () => [0, -4];
+    widget.draw = () => {};
+    widget.options = widget.options || {};
+    widget.options.surfaces = { canvas: "never", vueNode: "never", panel: "never" };
 }
 
 function setupPromptManagerWidget(node) {
