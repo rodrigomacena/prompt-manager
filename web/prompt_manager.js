@@ -57,14 +57,6 @@ async function fileToResizedDataUrl(file, maxDim = MAX_IMAGE_DIMENSION, quality 
     return canvas.toDataURL("image/jpeg", quality);
 }
 
-function combineWithPrefix(prefix, text) {
-    const p = (prefix || "").trim();
-    const t = text || "";
-    if (!p) return t;
-    if (!t) return p;
-    return `${p}\n\n${t}`;
-}
-
 const CSS_TEXT = `
 .pm-root {
     position: relative;
@@ -263,19 +255,23 @@ const CSS_TEXT = `
     letter-spacing: 0.03em;
     color: var(--descrip-text, #888);
 }
-.pm-preview-text {
+.pm-preview-textarea {
     flex: 1;
     min-height: 60px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 11px;
     line-height: 1.5;
+    font-family: inherit;
+    background: var(--comfy-input-bg, #232323);
     color: var(--input-text, #ddd);
-}
-.pm-preview-empty {
-    color: var(--descrip-text, #777);
-    font-style: italic;
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    padding: 6px;
 }
 .pm-preview-badge {
     align-self: flex-start;
@@ -974,23 +970,13 @@ function setupPromptManagerWidget(node) {
         return state.groups.find((g) => g.id === state.groupId) || null;
     }
 
-    function updatePreviewText() {
-        const previewEl = root.querySelector(".pm-preview-text");
-        if (!previewEl || previewEl.classList.contains("pm-preview-empty")) return;
-        const group = currentGroup();
-        const prompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
-        if (!prompt) return;
-        const baseText = state.previewOverride !== null ? state.previewOverride : prompt.text;
-        previewEl.textContent = combineWithPrefix(state.prefix, baseText);
-    }
-
     function syncWidgets() {
         const group = currentGroup();
         const prompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
         modeWidget.value = state.mode;
         groupIdWidget.value = state.groupId;
         promptIdWidget.value = prompt ? prompt.id : "";
-        promptTextWidget.value = prompt ? prompt.text : "";
+        promptTextWidget.value = state.previewOverride !== null ? state.previewOverride : prompt ? prompt.text : "";
         prefixWidget.value = state.prefix;
         if (!prompt) state.promptId = "";
     }
@@ -1000,6 +986,7 @@ function setupPromptManagerWidget(node) {
         state.promptId = promptIdWidget.value || "";
         state.mode = modeWidget.value || MODE_FIXED;
         state.prefix = prefixWidget.value || "";
+        state.previewOverride = promptTextWidget.value || null;
         state.enrichInstructions = node.properties.enrichInstructions || "";
         state.img2prompt.model = node.properties.img2promptModel || DEFAULT_VISION_MODEL;
         state.img2prompt.instructions = node.properties.img2promptInstructions || "";
@@ -1020,6 +1007,11 @@ function setupPromptManagerWidget(node) {
             state.groupId = state.groups[0] ? state.groups[0].id : "";
         }
         state.addingPrompt = false;
+        if (state.previewOverride !== null) {
+            const group = currentGroup();
+            const prompt = group ? group.prompts.find((p) => p.id === state.promptId) : null;
+            if (prompt && prompt.text === state.previewOverride) state.previewOverride = null;
+        }
         syncWidgets();
         render();
     }
@@ -1545,26 +1537,38 @@ function setupPromptManagerWidget(node) {
 
     function renderRightPanel(group, prompt) {
         const right = el("div", "pm-right");
-        right.appendChild(el("div", "pm-preview-title", "Preview Prompt"));
+        right.appendChild(el("div", "pm-preview-title", "Prompt"));
 
         const preview = el("div", "pm-preview-box");
         const hasOverride = state.previewOverride !== null;
-        if (prompt) {
-            const baseText = hasOverride ? state.previewOverride : prompt.text;
-            preview.appendChild(el("div", "pm-preview-text", combineWithPrefix(state.prefix, baseText)));
-        } else {
-            preview.appendChild(el("div", "pm-preview-text pm-preview-empty", "No prompt selected."));
-        }
-        if (hasOverride) {
-            preview.appendChild(el("div", "pm-preview-badge", "Not saved yet"));
-            const replaceBtn = el("button", "pm-primary-btn", "Replace saved prompt");
-            replaceBtn.addEventListener("click", async () => {
-                await updatePrompt(group, prompt, state.previewOverride, prompt.rating);
-                state.previewOverride = null;
-                render();
-            });
-            preview.appendChild(replaceBtn);
-        }
+        const baseText = hasOverride ? state.previewOverride : prompt ? prompt.text : "";
+
+        const textarea = document.createElement("textarea");
+        textarea.className = "pm-preview-textarea";
+        textarea.placeholder = "Type a prompt here and run it directly — no need to select or save one.";
+        textarea.value = baseText;
+
+        const badge = el("div", "pm-preview-badge", "Not saved yet");
+        badge.style.display = hasOverride ? "" : "none";
+
+        const replaceBtn = el("button", "pm-primary-btn", "Replace saved prompt");
+        replaceBtn.style.display = hasOverride && prompt ? "" : "none";
+        replaceBtn.addEventListener("click", async () => {
+            await updatePrompt(group, prompt, state.previewOverride, prompt.rating);
+            state.previewOverride = null;
+            render();
+        });
+
+        textarea.addEventListener("input", () => {
+            state.previewOverride = textarea.value;
+            promptTextWidget.value = state.previewOverride;
+            badge.style.display = "";
+            replaceBtn.style.display = prompt ? "" : "none";
+        });
+
+        preview.appendChild(textarea);
+        preview.appendChild(badge);
+        preview.appendChild(replaceBtn);
         right.appendChild(preview);
 
         const enrichBox = el("div", "pm-enrich-box");
@@ -1638,15 +1642,14 @@ function setupPromptManagerWidget(node) {
                 render();
             });
             enrichActions.appendChild(discardBtn);
-            if (prompt) {
-                const useBtn = el("button", "pm-primary-btn", "Use this text");
-                useBtn.addEventListener("click", () => {
-                    state.previewOverride = state.enrich.result;
-                    state.enrich = { loading: false, error: "", result: "" };
-                    render();
-                });
-                enrichActions.appendChild(useBtn);
-            }
+            const useBtn = el("button", "pm-primary-btn", "Use this text");
+            useBtn.addEventListener("click", () => {
+                state.previewOverride = state.enrich.result;
+                state.enrich = { loading: false, error: "", result: "" };
+                syncWidgets();
+                render();
+            });
+            enrichActions.appendChild(useBtn);
             enrichBox.appendChild(enrichActions);
         }
 
@@ -1734,7 +1737,6 @@ function setupPromptManagerWidget(node) {
         prefixInput.addEventListener("input", () => {
             state.prefix = prefixInput.value;
             prefixWidget.value = state.prefix;
-            updatePreviewText();
         });
         prefixRow.appendChild(prefixInput);
         content.appendChild(prefixRow);
