@@ -67,6 +67,13 @@ const CSS_TEXT = `
 .im-preview-box { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: rgba(255,255,255,0.04); overflow: hidden; }
 .im-preview-box img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 .im-preview-info { font-size: 11px; color: var(--descrip-text, #aaa); word-break: break-all; }
+.im-root.im-dragging::after {
+    content: "Drop images to upload to this folder";
+    position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+    background: rgba(59,111,216,0.28); border: 2px dashed #3b8bff; border-radius: 6px; font-size: 14px; color: #fff; pointer-events: none;
+}
+.im-status { font-size: 11px; color: var(--descrip-text, #aaa); }
+.im-status.im-error { color: #ff7b72; }
 .im-lightbox {
     position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,0.88);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px;
@@ -166,8 +173,18 @@ function setupInputManagerWidget(node) {
     slider.value = String(state.thumbSize);
     sliderWrap.appendChild(slider);
     header.appendChild(sliderWrap);
+    const status = el("div", "im-status");
+    header.insertBefore(status, sliderWrap);
+    const uploadBtn = el("button", "im-btn im-primary", "⬆ Upload");
+    const fileInput = el("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.multiple = true;
+    fileInput.style.display = "none";
     const refreshBtn = el("button", "im-btn", "⟳ Refresh");
+    header.appendChild(uploadBtn);
     header.appendChild(refreshBtn);
+    header.appendChild(fileInput);
     root.appendChild(header);
 
     const main = el("div", "im-main");
@@ -374,6 +391,73 @@ function setupInputManagerWidget(node) {
         document.body.appendChild(overlay);
         closeBtn.focus();
     }
+
+    let statusTimer = null;
+    function setStatus(text, isError) {
+        status.textContent = text;
+        status.classList.toggle("im-error", !!isError);
+        clearTimeout(statusTimer);
+        if (text) statusTimer = setTimeout(() => (status.textContent = ""), 6000);
+    }
+
+    async function uploadFiles(fileList) {
+        const files = [...fileList].filter((f) => f.type.startsWith("image/") || /.(png|jpe?g|webp|bmp|gif)$/i.test(f.name));
+        if (!files.length) {
+            setStatus("No image files to upload.", true);
+            return;
+        }
+        uploadBtn.disabled = true;
+        setStatus(`Uploading ${files.length} file(s)...`);
+        const form = new FormData();
+        form.append("dir", state.dir);
+        for (const f of files) form.append("file", f, f.name);
+        try {
+            const data = await apiJson("/input_manager/upload", { method: "POST", body: form });
+            await loadImages();
+            if (data.saved.length) select(data.saved[data.saved.length - 1]);
+            setStatus(data.errors.length ? `Uploaded ${data.saved.length}; ${data.errors.length} skipped.` : `Uploaded ${data.saved.length} image(s).`, data.errors.length > 0);
+        } catch (e) {
+            setStatus(e.message, true);
+        }
+        uploadBtn.disabled = false;
+    }
+
+    uploadBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+        const files = [...fileInput.files];
+        fileInput.value = "";
+        if (files.length) uploadFiles(files);
+    });
+
+    const hasFiles = (ev) => ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
+    let dragDepth = 0;
+    root.addEventListener("dragenter", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        dragDepth++;
+        root.classList.add("im-dragging");
+    });
+    root.addEventListener("dragover", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.dataTransfer.dropEffect = "copy";
+    });
+    root.addEventListener("dragleave", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.stopPropagation();
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (!dragDepth) root.classList.remove("im-dragging");
+    });
+    root.addEventListener("drop", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        dragDepth = 0;
+        root.classList.remove("im-dragging");
+        uploadFiles(ev.dataTransfer.files);
+    });
 
     dirSelect.addEventListener("change", async () => {
         state.dir = dirSelect.value;

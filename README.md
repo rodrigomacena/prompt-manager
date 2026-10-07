@@ -30,6 +30,7 @@ A third node, **Input Manager** (category `utils/image`), is an image gallery th
 
 - **Gallery**: pick any folder inside the ComfyUI directory (up to 3 levels deep; `models` and `custom_nodes` are left out) and see its images as thumbnails, newest first. A slider changes the thumbnail size. Thumbnails are cached under the ComfyUI user folder.
 - **Output**: click a picture to make it the node's output — `image`, `mask` (from the alpha channel, like the stock Load Image) and `filename`. A larger preview of the chosen picture is shown on the right.
+- **Upload**: the ⬆ Upload button (or dragging image files onto the node) saves the images into the folder currently open, never overwriting existing files (a `_1`, `_2`... suffix is added), and selects the last one uploaded.
 - **Enlarge / delete**: double-click a picture to open it large over the whole screen, with a Delete button (asks for confirmation) and Close (or Esc).
 - The chosen folder, image and thumbnail size are saved with the workflow.
 

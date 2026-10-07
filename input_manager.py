@@ -7,6 +7,8 @@ ComfyUI base directory or doesn't point at an image file.
 import asyncio
 import hashlib
 import os
+import re
+import uuid
 from typing import Any, Dict, List
 
 from aiohttp import web
@@ -116,6 +118,19 @@ def _make_thumb(src: str, dest: str) -> None:
         os.replace(tmp, dest)
 
 
+def _unique_path(folder: str, filename: str) -> str:
+    name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", os.path.basename(filename.replace("\\", "/"))).strip(". ")
+    stem, ext = os.path.splitext(name or "image.png")
+    if ext.lower() not in IMAGE_EXTS:
+        raise InputManagerError(f"{name or 'File'} is not a supported image")
+    candidate = os.path.join(folder, stem + ext)
+    n = 1
+    while os.path.exists(candidate):
+        candidate = os.path.join(folder, f"{stem}_{n}{ext}")
+        n += 1
+    return candidate
+
+
 def _err(message: str, status: int = 400):
     return web.json_response({"error": message}, status=status)
 
@@ -159,6 +174,55 @@ def setup_input_routes():
         except InputManagerError as e:
             return _err(str(e), 404)
         return web.FileResponse(src, headers={"Cache-Control": "no-cache"})
+
+    @routes.post("/input_manager/upload")
+    async def im_upload(request):
+        saved: List[str] = []
+        errors: List[str] = []
+        folder = ""
+        try:
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "dir":
+                    folder = (await part.text()).strip()
+                    continue
+                if part.name != "file" or not part.filename:
+                    continue
+                try:
+                    target_dir = resolve(folder)
+                    if not os.path.isdir(target_dir):
+                        raise InputManagerError("Folder not found")
+                    dest = _unique_path(target_dir, part.filename)
+                except InputManagerError as e:
+                    errors.append(str(e))
+                    while await part.read_chunk():
+                        pass
+                    continue
+                tmp = os.path.join(target_dir, f".upload_{uuid.uuid4().hex}.tmp")
+                try:
+                    with open(tmp, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk(1024 * 1024)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    with Image.open(tmp) as probe:
+                        probe.verify()
+                    os.replace(tmp, dest)
+                    saved.append(rel_of(dest))
+                except Exception:
+                    errors.append(f"{part.filename} is not a valid image")
+                finally:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+        except Exception:
+            return _err("Upload failed")
+        if not saved and errors:
+            return _err(errors[0])
+        return web.json_response({"saved": saved, "errors": errors})
 
     @routes.post("/input_manager/delete")
     async def im_delete(request):
