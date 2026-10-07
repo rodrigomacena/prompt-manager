@@ -725,9 +725,6 @@ function setupPromptManagerWidget(node) {
             loading: false,
             error: "",
             result: "",
-            adjustText: "",
-            adjusting: false,
-            adjustError: "",
         },
     };
 
@@ -1131,39 +1128,11 @@ function setupPromptManagerWidget(node) {
         render();
     }
 
-    async function applyImageAdjustment() {
-        const img = state.img2prompt;
-        const instructions = (img.adjustText || "").trim();
-        if (!img.result || !instructions || img.adjusting) return;
-
-        state.img2prompt.adjusting = true;
-        state.img2prompt.adjustError = "";
-        render();
-        try {
-            const res = await api.fetchApi("/prompt_manager/enrich", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: img.result, instructions, model: img.model }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Failed to adjust the prompt.");
-            state.img2prompt.result = data.text;
-            state.img2prompt.adjustText = "";
-        } catch (e) {
-            state.img2prompt.adjustError = e.message || String(e);
-        }
-        state.img2prompt.adjusting = false;
-        render();
-    }
-
     function clearImageToPrompt() {
         state.img2prompt.imageDataUrl = null;
         state.img2prompt.result = "";
         state.img2prompt.error = "";
-        state.img2prompt.adjustText = "";
-        state.img2prompt.adjustError = "";
         state.img2prompt.loading = false;
-        state.img2prompt.adjusting = false;
         render();
     }
 
@@ -1505,26 +1474,13 @@ function setupPromptManagerWidget(node) {
             saveBtn.addEventListener("click", saveImagePromptToGroup);
             panel.appendChild(saveBtn);
 
-            let adjustBtn;
-            const adjustField = document.createElement("textarea");
-            adjustField.className = "pm-enrich-instructions";
-            adjustField.placeholder = "Ask the AI to fix something. E.g.: describe the light in more detail, add a dog...";
-            adjustField.rows = 2;
-            adjustField.value = img.adjustText;
-            adjustField.addEventListener("input", () => {
-                state.img2prompt.adjustText = adjustField.value;
-                if (adjustBtn) adjustBtn.disabled = !adjustField.value.trim() || img.adjusting;
+            const useBtn = el("button", "pm-secondary-btn", "Replace Prompt with this text");
+            useBtn.addEventListener("click", () => {
+                state.previewOverride = img.result;
+                syncWidgets();
+                render();
             });
-            panel.appendChild(adjustField);
-
-            if (img.adjustError) {
-                panel.appendChild(el("div", "pm-img2prompt-error", img.adjustError));
-            }
-
-            adjustBtn = el("button", "pm-secondary-btn", img.adjusting ? "Adjusting..." : "Apply adjustment");
-            adjustBtn.disabled = !img.adjustText.trim() || img.adjusting;
-            adjustBtn.addEventListener("click", applyImageAdjustment);
-            panel.appendChild(adjustBtn);
+            panel.appendChild(useBtn);
         }
 
         panel.appendChild(el("div", "pm-img2prompt-divider"));
