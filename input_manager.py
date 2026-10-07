@@ -30,7 +30,35 @@ except Exception:
     _THUMB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "thumbs")
 os.makedirs(_THUMB_DIR, exist_ok=True)
 
+_MASK_DIR = os.path.join(os.path.dirname(_THUMB_DIR), "masks")
+os.makedirs(_MASK_DIR, exist_ok=True)
+_MASK_ID_RE = re.compile(r"[0-9a-f]{8,64}")
+
 _thumb_slots = asyncio.Semaphore(4)
+
+
+def mask_path(mask_id: str) -> str:
+    if not _MASK_ID_RE.fullmatch(mask_id or ""):
+        raise InputManagerError("Invalid mask id")
+    return os.path.join(_MASK_DIR, mask_id + ".png")
+
+
+def load_painted_mask(mask_id: str, width: int, height: int):
+    """Mask drawn in the gallery preview (painted = 1.0), or None if there isn't one."""
+    import numpy as np
+    import torch
+
+    try:
+        path = mask_path(mask_id)
+    except InputManagerError:
+        return None
+    if not os.path.isfile(path):
+        return None
+    with Image.open(path) as m:
+        alpha = m.convert("RGBA").getchannel("A")
+    if alpha.size != (width, height):
+        alpha = alpha.resize((width, height), Image.BILINEAR)
+    return torch.from_numpy(np.array(alpha).astype(np.float32) / 255.0).unsqueeze(0)
 
 
 class InputManagerError(Exception):
@@ -223,6 +251,57 @@ def setup_input_routes():
         if not saved and errors:
             return _err(errors[0])
         return web.json_response({"saved": saved, "errors": errors})
+
+    @routes.post("/input_manager/mask")
+    async def im_mask_save(request):
+        mask_id = ""
+        data = b""
+        clear = False
+        try:
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "id":
+                    mask_id = (await part.text()).strip()
+                elif part.name == "clear":
+                    clear = (await part.text()).strip() == "1"
+                elif part.name == "file":
+                    data = await part.read(decode=False)
+        except Exception:
+            return _err("Upload failed")
+        try:
+            path = mask_path(mask_id)
+        except InputManagerError as e:
+            return _err(str(e))
+        if clear:
+            if os.path.exists(path):
+                os.remove(path)
+            return web.json_response({"ok": True})
+        tmp = path + f".{uuid.uuid4().hex}.tmp"
+        try:
+            with open(tmp, "wb") as f:
+                f.write(data)
+            with Image.open(tmp) as probe:
+                probe.verify()
+            os.replace(tmp, path)
+        except Exception:
+            return _err("That is not a valid mask image")
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        return web.json_response({"ok": True})
+
+    @routes.get("/input_manager/mask")
+    async def im_mask_get(request):
+        try:
+            path = mask_path(request.query.get("id", ""))
+        except InputManagerError as e:
+            return _err(str(e))
+        if not os.path.isfile(path):
+            return _err("No mask", 404)
+        return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
 
     @routes.post("/input_manager/delete")
     async def im_delete(request):

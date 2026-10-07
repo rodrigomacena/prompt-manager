@@ -29,7 +29,9 @@ A second node in this package, **Model Manager** (category `utils/models`), mana
 A third node, **Input Manager** (category `utils/image`), is an image gallery that doubles as an image loader:
 
 - **Gallery**: pick any folder inside the ComfyUI directory (up to 3 levels deep; `models` and `custom_nodes` are left out) and see its images as thumbnails, newest first. A slider changes the thumbnail size. Thumbnails are cached under the ComfyUI user folder.
-- **Output**: click a picture to make it the node's output — `image`, `mask` (from the alpha channel, like the stock Load Image), `filename`, and the picture's `width` and `height` as integers. A larger preview of the chosen picture is shown on the right.
+- **Output**: click a picture to make it the node's output — `image`, `mask` (from the alpha channel, like the stock Load Image), `filename`, the picture's `width` and `height` as integers, and `cropped_image`. A larger preview of the chosen picture is shown on the right.
+- **Mask drawing**: paint directly on the preview with the **Mask** layer (Draw / Erase, brush size, Clear). The painted area becomes the `mask` output (white = painted). If nothing is painted, `mask` falls back to the image's own transparency, like the stock Load Image. Painting is saved with the workflow and reset when you pick another image.
+- **Keep layer and `cropped_image`**: switch to the **Keep** layer and paint what you want to keep. The `cropped_image` output is the selected image at its full size with everything outside the Keep area made transparent (it is a 4-channel RGBA `IMAGE`, like Join Image with Alpha). With nothing painted in Keep it returns the whole image.
 - **Upload**: the ⬆ Upload button (or dragging image files onto the node) saves the images into the folder currently open, never overwriting existing files (a `_1`, `_2`... suffix is added), and selects the last one uploaded.
 - **Enlarge / delete**: double-click a picture to open it large over the whole screen, with a Delete button (asks for confirmation) and Close (or Esc).
 - The chosen folder, image and thumbnail size are saved with the workflow.

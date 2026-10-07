@@ -65,7 +65,16 @@ const CSS_TEXT = `
 .im-preview { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px; }
 .im-preview-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--descrip-text, #888); }
 .im-preview-box { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: rgba(255,255,255,0.04); overflow: hidden; }
-.im-preview-box img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.im-paint-wrap { position: relative; flex-shrink: 0; }
+.im-paint-wrap img { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-drag: none; }
+.im-paint-wrap canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0.55; cursor: crosshair; touch-action: none; }
+.im-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.im-tools .im-btn { padding: 2px 7px; }
+.im-tools .im-btn.im-active { background: #3b6fd8; border-color: #3b6fd8; color: #fff; }
+.im-tools input[type=range] { flex: 1; min-width: 60px; }
+.im-tools .im-layer-row { display: flex; gap: 4px; width: 100%; }
+.im-tools .im-layer-row .im-btn { flex: 1; }
+.im-tools-hint { font-size: 10px; color: var(--descrip-text, #888); }
 .im-preview-info { font-size: 11px; color: var(--descrip-text, #aaa); word-break: break-all; }
 .im-root.im-dragging::after {
     content: "Drop images to upload to this folder";
@@ -139,8 +148,12 @@ function imageUrl(kind, path, mtime) {
 function setupInputManagerWidget(node) {
     const directoryWidget = node.widgets.find((w) => w.name === "directory");
     const imageWidget = node.widgets.find((w) => w.name === "image");
+    const maskWidget = node.widgets.find((w) => w.name === "mask_id");
+    const keepWidget = node.widgets.find((w) => w.name === "keep_id");
     hideWidget(directoryWidget);
     hideWidget(imageWidget);
+    hideWidget(maskWidget);
+    hideWidget(keepWidget);
 
     if (!node.properties) node.properties = {};
     if (node.properties.thumbSize === undefined) node.properties.thumbSize = DEFAULT_THUMB;
@@ -148,6 +161,9 @@ function setupInputManagerWidget(node) {
     const state = {
         dir: directoryWidget.value || DEFAULT_DIR,
         selected: imageWidget.value || "",
+        layer: "mask",
+        brush: Number(node.properties.brushSize) || 30,
+        erasing: false,
         thumbSize: Number(node.properties.thumbSize) || DEFAULT_THUMB,
         dirs: [],
         images: [],
@@ -198,6 +214,29 @@ function setupInputManagerWidget(node) {
     const previewBox = el("div", "im-preview-box");
     const previewInfo = el("div", "im-preview-info");
     preview.appendChild(previewBox);
+    const tools = el("div", "im-tools");
+    const drawBtn = el("button", "im-btn im-active", "🖌 Draw");
+    const eraseBtn = el("button", "im-btn", "Erase");
+    const layerRow = el("div", "im-layer-row");
+    const layerMaskBtn = el("button", "im-btn im-active", "Mask");
+    const layerKeepBtn = el("button", "im-btn", "Keep");
+    layerRow.appendChild(layerMaskBtn);
+    layerRow.appendChild(layerKeepBtn);
+    const clearMaskBtn = el("button", "im-btn", "Clear");
+    const toolsHint = el("div", "im-tools-hint");
+    const brushSlider = el("input");
+    brushSlider.type = "range";
+    brushSlider.min = "4";
+    brushSlider.max = "150";
+    brushSlider.value = String(state.brush);
+    brushSlider.title = "Brush size";
+    tools.appendChild(layerRow);
+    tools.appendChild(drawBtn);
+    tools.appendChild(eraseBtn);
+    tools.appendChild(brushSlider);
+    tools.appendChild(clearMaskBtn);
+    tools.appendChild(toolsHint);
+    preview.appendChild(tools);
     preview.appendChild(previewInfo);
     main.appendChild(gallery);
     main.appendChild(preview);
@@ -223,27 +262,226 @@ function setupInputManagerWidget(node) {
         return state.images.find((i) => joinPath(state.dir, i.name) === path) || null;
     }
 
-    function renderPreview() {
+    const layers = {
+        mask: { key: "mask", color: "#ff2a2a", widget: maskWidget, id: maskWidget.value || "", canvas: null, ctx: null, timer: null, version: 0 },
+        keep: { key: "keep", color: "#22dd77", widget: keepWidget, id: keepWidget.value || "", canvas: null, ctx: null, timer: null, version: 0 },
+    };
+    const LAYER_HINTS = {
+        mask: "Mask: paint the area for the mask output. No paint = the image's own transparency.",
+        keep: "Keep: paint what to keep. The cropped_image output keeps only this area and makes the rest transparent.",
+    };
+    let previewKey = "";
+
+    function randomId() {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    function setLayerId(layer, id) {
+        layer.id = id;
+        layer.widget.value = id;
+    }
+
+    async function postMask(fields) {
+        const form = new FormData();
+        for (const [k, v] of Object.entries(fields)) {
+            if (k === "file") form.append(k, v, "mask.png");
+            else form.append(k, v);
+        }
+        await apiJson("/input_manager/mask", { method: "POST", body: form });
+    }
+
+    async function discardLayer(layer) {
+        clearTimeout(layer.timer);
+        layer.timer = null;
+        layer.version++;
+        const old = layer.id;
+        setLayerId(layer, "");
+        if (old) {
+            try {
+                await postMask({ id: old, clear: "1" });
+            } catch (e) {
+                console.error("InputManager: failed to remove mask", e);
+            }
+        }
+    }
+
+    function discardAllLayers() {
+        return Promise.all([discardLayer(layers.mask), discardLayer(layers.keep)]);
+    }
+
+    function layerIsEmpty(layer) {
+        const probe = document.createElement("canvas");
+        probe.width = Math.min(layer.canvas.width, 512);
+        probe.height = Math.min(layer.canvas.height, 512);
+        const pctx = probe.getContext("2d");
+        pctx.drawImage(layer.canvas, 0, 0, probe.width, probe.height);
+        const px = pctx.getImageData(0, 0, probe.width, probe.height).data;
+        for (let i = 3; i < px.length; i += 4) if (px[i] > 0) return false;
+        return true;
+    }
+
+    async function saveLayerNow(layer) {
+        layer.timer = null;
+        if (!layer.canvas || !state.selected) return;
+        const version = ++layer.version;
+        if (layerIsEmpty(layer)) {
+            await discardLayer(layer);
+            return;
+        }
+        const id = layer.id || randomId();
+        const blob = await new Promise((resolve) => layer.canvas.toBlob(resolve, "image/png"));
+        if (!blob || version !== layer.version) return;
+        try {
+            await postMask({ id, file: blob });
+            if (version === layer.version) setLayerId(layer, id);
+        } catch (e) {
+            setStatus(e.message, true);
+        }
+    }
+
+    function scheduleLayerSave(layer) {
+        clearTimeout(layer.timer);
+        layer.timer = setTimeout(() => saveLayerNow(layer), 400);
+    }
+
+    function attachPainting(layer, wrap) {
+        const canvas = layer.canvas;
+        let drawing = false;
+        let last = null;
+        const toCanvas = (ev) => {
+            const r = canvas.getBoundingClientRect();
+            return [((ev.clientX - r.left) * canvas.width) / r.width, ((ev.clientY - r.top) * canvas.height) / r.height];
+        };
+        const stroke = (from, to) => {
+            const ctx = layer.ctx;
+            const scale = canvas.width / (wrap.clientWidth || 1);
+            ctx.globalCompositeOperation = state.erasing ? "destination-out" : "source-over";
+            ctx.strokeStyle = layer.color;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.lineWidth = state.brush * scale;
+            ctx.beginPath();
+            ctx.moveTo(from[0], from[1]);
+            ctx.lineTo(to[0], to[1]);
+            ctx.stroke();
+        };
+        canvas.addEventListener("pointerdown", (ev) => {
+            if (ev.button !== 0) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            canvas.setPointerCapture(ev.pointerId);
+            drawing = true;
+            last = toCanvas(ev);
+            stroke(last, last);
+        });
+        canvas.addEventListener("pointermove", (ev) => {
+            if (!drawing) return;
+            ev.stopPropagation();
+            const pt = toCanvas(ev);
+            stroke(last, pt);
+            last = pt;
+        });
+        const end = (ev) => {
+            if (!drawing) return;
+            drawing = false;
+            ev.stopPropagation();
+            scheduleLayerSave(layer);
+        };
+        canvas.addEventListener("pointerup", end);
+        canvas.addEventListener("pointercancel", end);
+    }
+
+    function fitPaintWrap(wrap, img) {
+        const boxW = previewBox.clientWidth;
+        const boxH = previewBox.clientHeight;
+        if (!boxW || !boxH || !img.naturalWidth) return 0;
+        const scale = Math.min(boxW / img.naturalWidth, boxH / img.naturalHeight, 1e6);
+        const w = Math.max(1, Math.floor(img.naturalWidth * scale));
+        const h = Math.max(1, Math.floor(img.naturalHeight * scale));
+        wrap.style.width = w + "px";
+        wrap.style.height = h + "px";
+        return w;
+    }
+
+    function updateTools() {
+        const on = !!state.selected;
+        for (const b of [drawBtn, eraseBtn, clearMaskBtn, brushSlider, layerMaskBtn, layerKeepBtn]) b.disabled = !on;
+        drawBtn.classList.toggle("im-active", !state.erasing);
+        eraseBtn.classList.toggle("im-active", state.erasing);
+        layerMaskBtn.classList.toggle("im-active", state.layer === "mask");
+        layerKeepBtn.classList.toggle("im-active", state.layer === "keep");
+        toolsHint.textContent = LAYER_HINTS[state.layer];
+        for (const layer of Object.values(layers)) {
+            if (layer.canvas) {
+                layer.canvas.style.pointerEvents = state.layer === layer.key ? "auto" : "none";
+                layer.canvas.style.zIndex = state.layer === layer.key ? "2" : "1";
+            }
+        }
+        tools.style.display = on ? "" : "none";
+    }
+
+    function renderPreview(force) {
+        updateTools();
+        const info = findImage(state.selected);
+        const key = state.selected ? `${state.selected}:${info ? info.mtime : 0}` : "";
+        if (!force && key === previewKey && previewBox.firstChild) return;
+        previewKey = key;
         previewBox.innerHTML = "";
         previewInfo.textContent = "";
+        for (const layer of Object.values(layers)) {
+            layer.canvas = null;
+            layer.ctx = null;
+        }
         if (!state.selected) {
             previewBox.appendChild(el("div", "im-empty", "Click a thumbnail to choose the output image. Double-click to enlarge."));
             return;
         }
-        const info = findImage(state.selected);
+        const wrap = el("div", "im-paint-wrap");
         const img = document.createElement("img");
+        img.draggable = false;
         img.src = imageUrl("image", state.selected, info ? info.mtime : 0);
+        wrap.appendChild(img);
+        const canvases = {};
+        for (const layer of Object.values(layers)) {
+            const canvas = document.createElement("canvas");
+            canvases[layer.key] = canvas;
+            wrap.appendChild(canvas);
+        }
         img.addEventListener("load", () => {
             previewInfo.textContent = `${state.selected}\n${img.naturalWidth} × ${img.naturalHeight}${info ? " · " + formatSize(info.size) : ""}`;
             previewInfo.style.whiteSpace = "pre-wrap";
+            fitPaintWrap(wrap, img);
+            for (const layer of Object.values(layers)) {
+                const canvas = canvases[layer.key];
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                layer.canvas = canvas;
+                layer.ctx = canvas.getContext("2d");
+                attachPainting(layer, wrap);
+                if (layer.id) {
+                    const m = new Image();
+                    m.addEventListener("load", () => {
+                        if (layer.canvas === canvas) layer.ctx.drawImage(m, 0, 0, canvas.width, canvas.height);
+                    });
+                    m.src = api.apiURL(`/input_manager/mask?id=${layer.id}&v=${Date.now()}`);
+                }
+            }
+            updateTools();
         });
         img.addEventListener("error", () => {
             previewBox.innerHTML = "";
             previewBox.appendChild(el("div", "im-empty", "The selected image could not be loaded."));
         });
-        img.addEventListener("dblclick", () => openLightbox(state.selected));
-        previewBox.appendChild(img);
+        previewBox.appendChild(wrap);
     }
+
+    new ResizeObserver(() => {
+        const wrap = previewBox.querySelector(".im-paint-wrap");
+        const img = wrap && wrap.querySelector("img");
+        if (wrap && img) fitPaintWrap(wrap, img);
+    }).observe(previewBox);
 
     function updateSelectionClasses() {
         for (const cell of grid.children) {
@@ -252,6 +490,7 @@ function setupInputManagerWidget(node) {
     }
 
     function select(path) {
+        if (path !== state.selected) discardAllLayers();
         state.selected = path;
         imageWidget.value = path;
         directoryWidget.value = state.dir;
@@ -459,6 +698,33 @@ function setupInputManagerWidget(node) {
         uploadFiles(ev.dataTransfer.files);
     });
 
+    drawBtn.addEventListener("click", () => {
+        state.erasing = false;
+        updateTools();
+    });
+    eraseBtn.addEventListener("click", () => {
+        state.erasing = true;
+        updateTools();
+    });
+    brushSlider.addEventListener("input", () => {
+        state.brush = Number(brushSlider.value);
+        node.properties.brushSize = state.brush;
+    });
+    layerMaskBtn.addEventListener("click", () => {
+        state.layer = "mask";
+        updateTools();
+    });
+    layerKeepBtn.addEventListener("click", () => {
+        state.layer = "keep";
+        updateTools();
+    });
+    clearMaskBtn.addEventListener("click", async () => {
+        const layer = layers[state.layer];
+        if (!layer.canvas) return;
+        layer.ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+        await discardLayer(layer);
+    });
+
     dirSelect.addEventListener("change", async () => {
         state.dir = dirSelect.value;
         directoryWidget.value = state.dir;
@@ -485,6 +751,11 @@ function setupInputManagerWidget(node) {
     function refreshFromWidgets() {
         state.dir = directoryWidget.value || DEFAULT_DIR;
         state.selected = imageWidget.value || "";
+        layers.mask.id = maskWidget.value || "";
+        layers.keep.id = keepWidget.value || "";
+        state.brush = Number(node.properties.brushSize) || 30;
+        brushSlider.value = String(state.brush);
+        previewKey = "";
         state.thumbSize = Number(node.properties.thumbSize) || DEFAULT_THUMB;
         slider.value = String(state.thumbSize);
         applyGridSize();
