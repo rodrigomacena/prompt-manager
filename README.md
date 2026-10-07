@@ -24,6 +24,15 @@ A second node in this package, **Model Manager** (category `utils/models`), mana
 - **Civitai downloader**: enter a Civitai model *version* ID (the number in `civitai.com/api/download/models/<id>`), pick the destination folder and click Download. The file name comes from Civitai's `Content-Disposition` header (like `wget --content-disposition`). A progress bar shows downloaded size, percentage and speed, with a Cancel button; partial files are removed on cancel or failure.
 - **Civitai token**: the 🔑 button stores your Civitai API token in the local Prompt Manager settings file (never in the repository), and it is appended as `?token=` on downloads.
 
+## Input Manager node
+
+A third node, **Input Manager** (category `utils/image`), is an image gallery that doubles as an image loader:
+
+- **Gallery**: pick any folder inside the ComfyUI directory (up to 3 levels deep; `models` and `custom_nodes` are left out) and see its images as thumbnails, newest first. A slider changes the thumbnail size. Thumbnails are cached under the ComfyUI user folder.
+- **Output**: click a picture to make it the node's output — `image`, `mask` (from the alpha channel, like the stock Load Image) and `filename`. A larger preview of the chosen picture is shown on the right.
+- **Enlarge / delete**: double-click a picture to open it large over the whole screen, with a Delete button (asks for confirmation) and Close (or Esc).
+- The chosen folder, image and thumbnail size are saved with the workflow.
+
 ## Installation
 
 1. Copy (or clone) this folder into `ComfyUI/custom_nodes/`:

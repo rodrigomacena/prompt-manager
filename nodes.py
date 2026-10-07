@@ -1,6 +1,8 @@
+import os
 import random
 
 from . import storage
+from .input_manager import InputManagerError, load_image_tensor, resolve_image
 
 MODE_FIXED = "fixed"
 MODE_RANDOM = "random"
@@ -72,12 +74,54 @@ class ModelManagerNode:
         return ()
 
 
+class InputManagerNode:
+    CATEGORY = "utils/image"
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING")
+    RETURN_NAMES = ("image", "mask", "filename")
+    FUNCTION = "run"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory": ("STRING", {"default": "input", "multiline": False}),
+                "image": ("STRING", {"default": "", "multiline": False}),
+            },
+        }
+
+    def run(self, directory, image):
+        path = resolve_image(image)
+        tensor, mask = load_image_tensor(path)
+        return (tensor, mask, os.path.basename(path))
+
+    @classmethod
+    def IS_CHANGED(cls, directory, image):
+        try:
+            path = resolve_image(image)
+            st = os.stat(path)
+            return f"{image}:{st.st_mtime_ns}:{st.st_size}"
+        except (InputManagerError, OSError):
+            return image
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, directory, image):
+        if not image:
+            return "Pick an image in the Input Manager gallery first"
+        try:
+            resolve_image(image)
+        except InputManagerError as e:
+            return str(e)
+        return True
+
+
 NODE_CLASS_MAPPINGS = {
     "PromptManager": PromptManagerNode,
     "ModelManager": ModelManagerNode,
+    "InputManager": InputManagerNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PromptManager": "Prompt Manager",
     "ModelManager": "Model Manager",
+    "InputManager": "Input Manager",
 }
