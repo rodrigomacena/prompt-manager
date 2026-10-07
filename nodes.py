@@ -76,8 +76,8 @@ class ModelManagerNode:
 
 class InputManagerNode:
     CATEGORY = "utils/image"
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING")
-    RETURN_NAMES = ("image", "mask", "filename")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "INT", "INT")
+    RETURN_NAMES = ("image", "mask", "filename", "width", "height")
     FUNCTION = "run"
 
     @classmethod
@@ -92,7 +92,7 @@ class InputManagerNode:
     def run(self, directory, image):
         path = resolve_image(image)
         tensor, mask = load_image_tensor(path)
-        return (tensor, mask, os.path.basename(path))
+        return (tensor, mask, os.path.basename(path), int(tensor.shape[2]), int(tensor.shape[1]))
 
     @classmethod
     def IS_CHANGED(cls, directory, image):
