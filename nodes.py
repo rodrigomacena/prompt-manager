@@ -103,11 +103,14 @@ class InputManagerNode:
             if painted is not None:
                 mask = painted
         alpha = original_alpha
+        rgb = tensor
         if keep_id:
             keep = load_painted_mask(keep_id, width, height)
             if keep is not None:
                 alpha = original_alpha * keep
-        cropped = torch.cat([tensor, alpha.unsqueeze(-1)], dim=-1)
+                # Also blank the RGB outside the kept area, so nodes that drop the alpha channel still lose it.
+                rgb = tensor * (alpha > 0).to(tensor.dtype).unsqueeze(-1)
+        cropped = torch.cat([rgb, alpha.unsqueeze(-1)], dim=-1)
         return (tensor, mask, os.path.basename(path), width, height, cropped)
 
     @classmethod

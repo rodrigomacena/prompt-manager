@@ -393,7 +393,11 @@ function setupInputManagerWidget(node) {
             if (ev.button !== 0) return;
             ev.preventDefault();
             ev.stopPropagation();
-            canvas.setPointerCapture(ev.pointerId);
+            try {
+                canvas.setPointerCapture(ev.pointerId);
+            } catch (e) {
+                // pointer capture is only a convenience while dragging outside the canvas
+            }
             drawing = true;
             last = toCanvas(ev);
             stroke(last, last);
