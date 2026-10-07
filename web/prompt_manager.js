@@ -1134,8 +1134,44 @@ function setupPromptManagerWidget(node) {
         render();
     }
 
+    const PASTE_FALLBACK_HINT = "The browser blocks the Paste button on this connection. Hover over this panel and press Ctrl+V instead, or use Upload.";
+
+    async function setPastedImage(blob) {
+        try {
+            state.img2prompt.imageDataUrl = await fileToResizedDataUrl(blob);
+            state.img2prompt.error = "";
+        } catch (e) {
+            console.error("PromptManager: failed to read pasted image", e);
+            state.img2prompt.error = "Could not read that image.";
+        }
+        render();
+    }
+
+    let hoveringRoot = false;
+    root.addEventListener("mouseenter", () => (hoveringRoot = true));
+    root.addEventListener("mouseleave", () => (hoveringRoot = false));
+    const onDocumentPaste = (ev) => {
+        if (!root.isConnected) {
+            document.removeEventListener("paste", onDocumentPaste, true);
+            return;
+        }
+        if (!hoveringRoot && !root.contains(document.activeElement)) return;
+        const files = ev.clipboardData ? [...ev.clipboardData.files] : [];
+        const imageFile = files.find((f) => f.type.startsWith("image/"));
+        if (!imageFile) return;
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        setPastedImage(imageFile);
+    };
+    document.addEventListener("paste", onDocumentPaste, true);
+
     async function pasteImageFromClipboard() {
         state.img2prompt.error = "";
+        if (!navigator.clipboard || !navigator.clipboard.read) {
+            state.img2prompt.error = PASTE_FALLBACK_HINT;
+            render();
+            return;
+        }
         try {
             const items = await navigator.clipboard.read();
             for (const item of items) {
@@ -1150,7 +1186,7 @@ function setupPromptManagerWidget(node) {
             state.img2prompt.error = "No image found on the clipboard.";
         } catch (e) {
             console.error("PromptManager: failed to paste image", e);
-            state.img2prompt.error = "Could not read the clipboard. Try the Upload button instead.";
+            state.img2prompt.error = PASTE_FALLBACK_HINT;
         }
         render();
     }
@@ -1484,7 +1520,7 @@ function setupPromptManagerWidget(node) {
             image.src = img.imageDataUrl;
             preview.appendChild(image);
         } else {
-            preview.appendChild(el("div", "pm-img2prompt-preview-empty", "Upload or paste an image to get started. It is only sent to the AI, never saved."));
+            preview.appendChild(el("div", "pm-img2prompt-preview-empty", "Upload or paste (Ctrl+V while hovering here) an image to get started. It is only sent to the AI, never saved."));
         }
         panel.appendChild(preview);
 
