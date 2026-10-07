@@ -488,9 +488,9 @@ const CSS_TEXT = `
 .pm-prefix-input {
     width: 100%;
     box-sizing: border-box;
-    resize: vertical;
+    resize: none;
+    overflow-y: hidden;
     min-height: 32px;
-    max-height: 90px;
     background: var(--comfy-input-bg, #232323);
     color: var(--input-text, #ddd);
     border: 1px solid var(--border-color, #444);
@@ -1690,12 +1690,18 @@ function setupPromptManagerWidget(node) {
         prefixInput.placeholder = "Ex: masterpiece, best quality";
         prefixInput.rows = 2;
         prefixInput.value = state.prefix;
+        const fitPrefix = () => {
+            prefixInput.style.height = "auto";
+            prefixInput.style.height = prefixInput.scrollHeight + 2 + "px";
+        };
         prefixInput.addEventListener("input", () => {
             state.prefix = prefixInput.value;
             prefixWidget.value = state.prefix;
+            fitPrefix();
         });
         prefixRow.appendChild(prefixInput);
         content.appendChild(prefixRow);
+        requestAnimationFrame(fitPrefix);
 
         if (!group) {
             const empty = el("div", "pm-empty");
