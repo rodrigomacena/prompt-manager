@@ -99,7 +99,11 @@ def all_dirs() -> List[str]:
     return result
 
 
-def list_images(rel_dir: str) -> Dict[str, Any]:
+def _natural_key(name: str):
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", name.lower())]
+
+
+def list_images(rel_dir: str, sort: str = "date", order: str = "") -> Dict[str, Any]:
     full = resolve(rel_dir)
     if not os.path.isdir(full):
         raise InputManagerError("Folder not found")
@@ -112,7 +116,16 @@ def list_images(rel_dir: str) -> Dict[str, Any]:
                     images.append({"name": entry.name, "size": st.st_size, "mtime": st.st_mtime})
             except OSError:
                 continue
-    images.sort(key=lambda i: i["mtime"], reverse=True)
+    if sort not in ("date", "name", "size"):
+        sort = "date"
+    if order not in ("asc", "desc"):
+        order = "asc" if sort == "name" else "desc"
+    keys = {
+        "date": lambda i: (i["mtime"], _natural_key(i["name"])),
+        "name": lambda i: _natural_key(i["name"]),
+        "size": lambda i: (i["size"], _natural_key(i["name"])),
+    }
+    images.sort(key=keys[sort], reverse=(order == "desc"))
     truncated = len(images) > MAX_IMAGES
     return {"dir": rel_of(full), "images": images[:MAX_IMAGES], "total": len(images), "truncated": truncated}
 
@@ -173,7 +186,9 @@ def setup_input_routes():
     @routes.get("/input_manager/list")
     async def im_list(request):
         try:
-            return web.json_response(list_images(request.query.get("dir", "")))
+            return web.json_response(
+                list_images(request.query.get("dir", ""), request.query.get("sort", "date"), request.query.get("order", ""))
+            )
         except InputManagerError as e:
             return _err(str(e), 404)
 

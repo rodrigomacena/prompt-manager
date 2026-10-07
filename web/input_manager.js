@@ -6,6 +6,8 @@ const DEFAULT_DIR = "input";
 const DEFAULT_THUMB = 140;
 const MIN_THUMB = 70;
 const MAX_THUMB = 260;
+const SORT_DEFAULT_ORDER = { date: "desc", name: "asc", size: "desc" };
+const SORT_LABELS = { date: "Date", name: "Name", size: "File size" };
 
 const CSS_TEXT = `
 .im-root {
@@ -157,10 +159,16 @@ function setupInputManagerWidget(node) {
 
     if (!node.properties) node.properties = {};
     if (node.properties.thumbSize === undefined) node.properties.thumbSize = DEFAULT_THUMB;
+    if (!SORT_DEFAULT_ORDER[node.properties.sortBy]) node.properties.sortBy = "date";
+    if (node.properties.sortOrder !== "asc" && node.properties.sortOrder !== "desc") {
+        node.properties.sortOrder = SORT_DEFAULT_ORDER[node.properties.sortBy];
+    }
 
     const state = {
         dir: directoryWidget.value || DEFAULT_DIR,
         selected: imageWidget.value || "",
+        sortBy: node.properties.sortBy,
+        sortOrder: node.properties.sortOrder,
         layer: "mask",
         brush: Number(node.properties.brushSize) || 30,
         erasing: false,
@@ -178,9 +186,23 @@ function setupInputManagerWidget(node) {
     header.appendChild(el("div", "im-title", "Input Manager"));
     const dirSelect = el("select", "im-select");
     header.appendChild(dirSelect);
+    const sortWrap = el("div", "im-slider-wrap");
+    sortWrap.appendChild(el("span", null, "Sort"));
+    const sortSelect = el("select", "im-select");
+    sortSelect.style.minWidth = "0";
+    for (const [value, label] of Object.entries(SORT_LABELS)) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        sortSelect.appendChild(opt);
+    }
+    const orderBtn = el("button", "im-btn");
+    sortWrap.appendChild(sortSelect);
+    sortWrap.appendChild(orderBtn);
+    header.appendChild(sortWrap);
     header.appendChild(el("div", "im-spacer"));
     const sliderWrap = el("div", "im-slider-wrap");
-    sliderWrap.appendChild(el("span", null, "Size"));
+    sliderWrap.appendChild(el("span", null, "Thumbs"));
     const slider = el("input");
     slider.type = "range";
     slider.min = String(MIN_THUMB);
@@ -534,7 +556,9 @@ function setupInputManagerWidget(node) {
     async function loadImages() {
         const token = ++loadToken;
         try {
-            const data = await apiJson(`/input_manager/list?dir=${encodeURIComponent(state.dir)}`);
+            const data = await apiJson(
+                `/input_manager/list?dir=${encodeURIComponent(state.dir)}&sort=${state.sortBy}&order=${state.sortOrder}`
+            );
             if (token !== loadToken) return;
             state.images = data.images;
             state.truncated = data.truncated ? data.total - data.images.length : 0;
@@ -725,6 +749,28 @@ function setupInputManagerWidget(node) {
         await discardLayer(layer);
     });
 
+    function updateSortUi() {
+        sortSelect.value = state.sortBy;
+        orderBtn.textContent = state.sortOrder === "asc" ? "↑" : "↓";
+        const names = { date: ["oldest first", "newest first"], name: ["A to Z", "Z to A"], size: ["smallest first", "largest first"] }[state.sortBy];
+        orderBtn.title = state.sortOrder === "asc" ? names[0] : names[1];
+    }
+    sortSelect.addEventListener("change", () => {
+        state.sortBy = sortSelect.value;
+        state.sortOrder = SORT_DEFAULT_ORDER[state.sortBy];
+        node.properties.sortBy = state.sortBy;
+        node.properties.sortOrder = state.sortOrder;
+        updateSortUi();
+        loadImages();
+    });
+    orderBtn.addEventListener("click", () => {
+        state.sortOrder = state.sortOrder === "asc" ? "desc" : "asc";
+        node.properties.sortOrder = state.sortOrder;
+        updateSortUi();
+        loadImages();
+    });
+    updateSortUi();
+
     dirSelect.addEventListener("change", async () => {
         state.dir = dirSelect.value;
         directoryWidget.value = state.dir;
@@ -757,6 +803,9 @@ function setupInputManagerWidget(node) {
         brushSlider.value = String(state.brush);
         previewKey = "";
         state.thumbSize = Number(node.properties.thumbSize) || DEFAULT_THUMB;
+        if (SORT_DEFAULT_ORDER[node.properties.sortBy]) state.sortBy = node.properties.sortBy;
+        if (node.properties.sortOrder === "asc" || node.properties.sortOrder === "desc") state.sortOrder = node.properties.sortOrder;
+        updateSortUi();
         slider.value = String(state.thumbSize);
         applyGridSize();
         renderDirSelect();
