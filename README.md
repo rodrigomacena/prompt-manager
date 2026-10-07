@@ -15,6 +15,15 @@ Custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) to save you
 - **Image to prompt**: upload or paste an image (never saved to disk, only sent to the AI) and convert it into a prompt with the Image Recognition model set in the gear menu, with its own optional instructions (e.g. "describe only the scenery"). Once you have a result, a "Save prompt" button adds it straight into the active group and a "Replace Prompt with this text" button puts it into the Prompt field (unsaved). A "Clear image & text" button resets the process.
 - **Backup & restore**: a gear icon next to the group controls backs up or restores every group at once as a `.json` file, and holds the OpenRouter API key and both model choices (Enrichment model, Image Recognition model), saved together with one button.
 
+## Model Manager node
+
+A second node in this package, **Model Manager** (category `utils/models`), manages the files under ComfyUI's `models` folder. It has no inputs or outputs; it is just a panel on the canvas:
+
+- **Explorer**: a folder tree on the left and the selected folder's subfolders and files (with sizes) on the right.
+- **Move / Delete**: each file has a Move button (pick a destination folder) and a Delete button (asks for confirmation). Everything is confined to the models folder, and moving never overwrites an existing file.
+- **Civitai downloader**: enter a Civitai model *version* ID (the number in `civitai.com/api/download/models/<id>`), pick the destination folder and click Download. The file name comes from Civitai's `Content-Disposition` header (like `wget --content-disposition`). A progress bar shows downloaded size, percentage and speed, with a Cancel button; partial files are removed on cancel or failure.
+- **Civitai token**: the 🔑 button stores your Civitai API token in the local Prompt Manager settings file (never in the repository), and it is appended as `?token=` on downloads.
+
 ## Installation
 
 1. Copy (or clone) this folder into `ComfyUI/custom_nodes/`:

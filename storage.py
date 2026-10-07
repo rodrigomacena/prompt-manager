@@ -226,7 +226,11 @@ def get_settings() -> Dict[str, Any]:
     return load_db()["settings"]
 
 
-def save_settings(api_key: Optional[str] = None, model: Optional[str] = None) -> Dict[str, Any]:
+def save_settings(
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    civitai_token: Optional[str] = None,
+) -> Dict[str, Any]:
     with _lock:
         db = _read_raw()
         settings = db["settings"]
@@ -234,5 +238,7 @@ def save_settings(api_key: Optional[str] = None, model: Optional[str] = None) ->
             settings["api_key"] = api_key
         if model is not None:
             settings["model"] = model.strip() or DEFAULT_MODEL
+        if civitai_token is not None:
+            settings["civitai_token"] = civitai_token.strip()
         _write_raw(db)
         return settings

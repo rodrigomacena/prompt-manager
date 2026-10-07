@@ -56,10 +56,28 @@ def _combine(prefix, text):
     return f"{prefix}\n\n{text}"
 
 
+class ModelManagerNode:
+    """UI-only node: the explorer/downloader lives entirely in the frontend."""
+
+    CATEGORY = "utils/models"
+    RETURN_TYPES = ()
+    FUNCTION = "run"
+    OUTPUT_NODE = False
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}}
+
+    def run(self):
+        return ()
+
+
 NODE_CLASS_MAPPINGS = {
     "PromptManager": PromptManagerNode,
+    "ModelManager": ModelManagerNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PromptManager": "Prompt Manager",
+    "ModelManager": "Model Manager",
 }
