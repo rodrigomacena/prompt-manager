@@ -6,7 +6,7 @@ Custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) to save you
 
 - **Prompt groups**: organize prompts into named groups (e.g. "Portrait", "Landscape").
 - **Visual grid**: a group's prompts show up as cards in a grid, ranked by star rating, with an editable "Prompt" panel on the right.
-- **Freeform Prompt field**: the right-hand "Prompt" box is fully editable — pick a saved prompt to load it there, or just type any text directly and run the node, with or without a group/prompt selected. Edits show a "Not saved yet" badge and, when a saved prompt is selected, a "Replace saved prompt" button to persist them.
+- **Freeform Prompt field**: the right-hand "Prompt" box is fully editable — pick a saved prompt to load it there, or just type any text directly and run the node, with or without a group/prompt selected. Edits show a "Not saved yet" badge and, when a saved prompt is selected, a "Replace saved prompt" button to persist them. A "Save prompt" button above the AI box opens a dialog showing the text and asking only for a title, then saves it as a new prompt in the active group.
 - **Star rating (1–5)**: click the stars on a card to rate it.
 - **Add / edit / delete prompts**: a "+" card adds a prompt with an optional title (shown on the card above a shorter text snippet) plus the full text; double-clicking a card opens the full prompt with Edit and Delete actions. Groups can be renamed or deleted too.
 - **Output mode**: choose between `Fixed` (the manually selected prompt), `Random` (picks a prompt from the group on every run) or `Sequential` (cycles through the group's prompts in order, one per run).

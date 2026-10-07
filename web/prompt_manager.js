@@ -794,6 +794,61 @@ function setupPromptManagerWidget(node) {
     const pmConfirm = (message) => showModal({ message, mode: "confirm" });
     const pmAlert = (message) => showModal({ message, mode: "alert" });
 
+    function showSavePromptModal(group, text) {
+        const overlay = el("div", "pm-modal-overlay");
+        const box = el("div", "pm-modal-box pm-view-box");
+        overlay.appendChild(box);
+        const close = () => overlay.remove();
+
+        box.appendChild(el("div", "pm-view-title", `Save prompt to "${group.name}"`));
+        box.appendChild(el("div", "pm-view-text", text));
+
+        const titleInput = document.createElement("input");
+        titleInput.type = "text";
+        titleInput.className = "pm-editor-title";
+        titleInput.placeholder = "Title";
+        box.appendChild(titleInput);
+
+        const save = async () => {
+            const created = await addPrompt(group, text, 0, titleInput.value.trim());
+            state.promptId = created.id;
+            state.previewOverride = null;
+            state.enrich = { loading: false, error: "", result: "" };
+            syncWidgets();
+            render();
+            close();
+        };
+
+        const actions = el("div", "pm-modal-actions");
+        const cancelBtn = el("button", "pm-secondary-btn", "Cancel");
+        cancelBtn.addEventListener("click", close);
+        const saveBtn = el("button", "pm-primary-btn", "Save");
+        saveBtn.addEventListener("click", save);
+        actions.appendChild(cancelBtn);
+        actions.appendChild(saveBtn);
+        box.appendChild(actions);
+
+        titleInput.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                save();
+            } else if (ev.key === "Escape") {
+                close();
+            }
+        });
+
+        let overlayMouseDownTarget = null;
+        overlay.addEventListener("mousedown", (ev) => {
+            overlayMouseDownTarget = ev.target;
+        });
+        overlay.addEventListener("click", (ev) => {
+            if (ev.target === overlay && overlayMouseDownTarget === overlay) close();
+        });
+
+        root.appendChild(overlay);
+        setTimeout(() => titleInput.focus(), 0);
+    }
+
     function showPromptViewModal(group, prompt) {
         const overlay = el("div", "pm-modal-overlay");
         const box = el("div", "pm-modal-box pm-view-box");
@@ -1515,17 +1570,27 @@ function setupPromptManagerWidget(node) {
             render();
         });
 
+        const savePromptBtn = el("button", "pm-primary-btn", "Save prompt");
+        savePromptBtn.disabled = !group || !baseText.trim();
+        savePromptBtn.title = group ? "" : "Select or create a group first";
+        savePromptBtn.addEventListener("click", () => {
+            const text = textarea.value.trim();
+            if (group && text) showSavePromptModal(group, text);
+        });
+
         textarea.addEventListener("input", () => {
             state.previewOverride = textarea.value;
             promptTextWidget.value = state.previewOverride;
             badge.style.display = "";
             replaceBtn.style.display = prompt ? "" : "none";
+            savePromptBtn.disabled = !group || !textarea.value.trim();
         });
 
         preview.appendChild(textarea);
         preview.appendChild(badge);
         preview.appendChild(replaceBtn);
         right.appendChild(preview);
+        right.appendChild(savePromptBtn);
 
         const enrichBox = el("div", "pm-enrich-box");
 
