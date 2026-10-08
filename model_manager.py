@@ -98,6 +98,25 @@ def move_file(rel: str, dest_dir: str) -> str:
     return _rel(dest)
 
 
+def rename_file(rel: str, new_name: str) -> str:
+    src = _resolve(rel)
+    if not os.path.isfile(src):
+        raise ModelManagerError("File not found")
+    new_name = (new_name or "").strip()
+    if not new_name or new_name in (".", ".."):
+        raise ModelManagerError("Enter a file name")
+    if "/" in new_name or "\\" in new_name or re.search(r'[<>:"|?*\x00-\x1f]', new_name) or new_name.endswith((".", " ")):
+        raise ModelManagerError("The name contains characters that are not allowed")
+    dest = os.path.join(os.path.dirname(src), new_name)
+    if new_name == os.path.basename(src):
+        raise ModelManagerError("That is already the file name")
+    only_case_change = new_name.lower() == os.path.basename(src).lower()
+    if os.path.exists(dest) and not only_case_change:
+        raise ModelManagerError("A file with that name already exists in this folder")
+    os.replace(src, dest)
+    return _rel(dest)
+
+
 def _safe_filename(name: str) -> str:
     name = os.path.basename(name.replace("\\", "/"))
     name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", name).strip(". ")
@@ -215,6 +234,19 @@ def setup_model_routes():
             return _err(str(e))
         except OSError as e:
             return _err(f"Could not move: {e.strerror}")
+        return web.json_response({"ok": True, "path": new_path})
+
+    @routes.post("/model_manager/rename")
+    async def mm_rename(request):
+        data = await _json(request)
+        if not data:
+            return _err("Invalid JSON")
+        try:
+            new_path = rename_file(data.get("path", ""), data.get("name", ""))
+        except ModelManagerError as e:
+            return _err(str(e))
+        except OSError as e:
+            return _err(f"Could not rename: {e.strerror}")
         return web.json_response({"ok": True, "path": new_path})
 
     @routes.get("/model_manager/settings")

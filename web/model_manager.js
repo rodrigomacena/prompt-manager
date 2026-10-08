@@ -324,10 +324,13 @@ function setupModelManagerWidget(node) {
             name.title = f.name;
             row.appendChild(name);
             row.appendChild(el("span", "mm-size", formatSize(f.size)));
+            const renameBtn = el("button", "mm-btn", "Rename");
+            renameBtn.addEventListener("click", () => promptRename(f));
             const moveBtn = el("button", "mm-btn", "Move");
             moveBtn.addEventListener("click", () => promptMove(f));
             const delBtn = el("button", "mm-btn mm-danger", "Delete");
             delBtn.addEventListener("click", () => promptDelete(f));
+            row.appendChild(renameBtn);
             row.appendChild(moveBtn);
             row.appendChild(delBtn);
             list.appendChild(row);
@@ -366,6 +369,58 @@ function setupModelManagerWidget(node) {
             actions.appendChild(ok);
             box.appendChild(err);
             box.appendChild(actions);
+        });
+    }
+
+    function promptRename(file) {
+        const path = joinPath(state.currentPath, file.name);
+        showModal((box, close) => {
+            box.appendChild(el("div", null, "Rename file:"));
+            box.appendChild(el("div", "mm-modal-file", path));
+            const input = el("input", "mm-input");
+            input.type = "text";
+            input.value = file.name;
+            input.style.width = "100%";
+            box.appendChild(input);
+            const err = el("div", "mm-error");
+            const actions = el("div", "mm-modal-actions");
+            const cancel = el("button", "mm-btn", "Cancel");
+            cancel.addEventListener("click", close);
+            const ok = el("button", "mm-btn mm-primary", "Rename");
+            const submit = async () => {
+                const name = input.value.trim();
+                if (!name || name === file.name) {
+                    err.textContent = name ? "That is already the file name." : "Enter a file name.";
+                    return;
+                }
+                ok.disabled = true;
+                try {
+                    await postJson("/model_manager/rename", { path, name });
+                    close();
+                    await renderAll();
+                } catch (e) {
+                    err.textContent = e.message;
+                    ok.disabled = false;
+                }
+            };
+            ok.addEventListener("click", submit);
+            input.addEventListener("keydown", (ev) => {
+                if (ev.key === "Enter") {
+                    ev.preventDefault();
+                    submit();
+                } else if (ev.key === "Escape") {
+                    close();
+                }
+            });
+            actions.appendChild(cancel);
+            actions.appendChild(ok);
+            box.appendChild(err);
+            box.appendChild(actions);
+            setTimeout(() => {
+                input.focus();
+                const dot = file.name.lastIndexOf(".");
+                input.setSelectionRange(0, dot > 0 ? dot : file.name.length);
+            }, 0);
         });
     }
 

@@ -20,7 +20,7 @@ Custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) to save you
 A second node in this package, **Model Manager** (category `utils/models`), manages the files under ComfyUI's `models` folder. It has no inputs or outputs; it is just a panel on the canvas:
 
 - **Explorer**: a folder tree on the left and the selected folder's subfolders and files (with sizes) on the right.
-- **Move / Delete**: each file has a Move button (pick a destination folder) and a Delete button (asks for confirmation). Everything is confined to the models folder, and moving never overwrites an existing file.
+- **Rename / Move / Delete**: each file has a Rename button (type the new name; the extension is kept out of the initial selection), a Move button (pick a destination folder) and a Delete button (asks for confirmation). Everything is confined to the models folder, and renaming or moving never overwrites an existing file.
 - **Civitai downloader**: enter a Civitai model *version* ID (the number in `civitai.com/api/download/models/<id>`), pick the destination folder and click Download. The file name comes from Civitai's `Content-Disposition` header (like `wget --content-disposition`). A progress bar shows downloaded size, percentage and speed, with a Cancel button; partial files are removed on cancel or failure.
 - **Civitai token**: the 🔑 button stores your Civitai API token in the local Prompt Manager settings file (never in the repository), and it is appended as `?token=` on downloads.
 
