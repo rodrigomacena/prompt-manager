@@ -1714,7 +1714,29 @@ function setupPromptManagerWidget(node) {
         return right;
     }
 
+    const SCROLL_SELECTOR = ".pm-main, .pm-content, .pm-right, .pm-img2prompt, .pm-enrich-box";
+
+    function captureScroll() {
+        const saved = [body.scrollTop, body.scrollLeft];
+        const list = [...body.querySelectorAll(SCROLL_SELECTOR)].map((e) => [e.className, e.scrollTop, e.scrollLeft]);
+        return { saved, list };
+    }
+
+    function restoreScroll(snapshot) {
+        body.scrollTop = snapshot.saved[0];
+        body.scrollLeft = snapshot.saved[1];
+        const now = [...body.querySelectorAll(SCROLL_SELECTOR)];
+        snapshot.list.forEach(([cls, top, left], i) => {
+            const e = now[i];
+            if (e && e.className === cls) {
+                e.scrollTop = top;
+                e.scrollLeft = left;
+            }
+        });
+    }
+
     function render() {
+        const scrollSnapshot = captureScroll();
         body.innerHTML = "";
 
         const main = el("div", "pm-main");
@@ -1826,6 +1848,7 @@ function setupPromptManagerWidget(node) {
         main.appendChild(renderRightPanel(group, selectedPrompt));
 
         body.appendChild(main);
+        restoreScroll(scrollSnapshot);
 
         root.querySelectorAll(".pm-settings-menu").forEach((m) => m.remove());
         if (state.settingsMenuOpen) {
