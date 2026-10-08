@@ -230,6 +230,7 @@ def save_settings(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     civitai_token: Optional[str] = None,
+    hf_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _lock:
         db = _read_raw()
@@ -240,5 +241,7 @@ def save_settings(
             settings["model"] = model.strip() or DEFAULT_MODEL
         if civitai_token is not None:
             settings["civitai_token"] = civitai_token.strip()
+        if hf_token is not None:
+            settings["hf_token"] = hf_token.strip()
         _write_raw(db)
         return settings

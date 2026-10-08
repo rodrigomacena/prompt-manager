@@ -10,6 +10,7 @@ import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import aiohttp
 from aiohttp import web
@@ -22,6 +23,19 @@ from . import storage
 MODELS_DIR = os.path.normpath(os.path.abspath(folder_paths.models_dir))
 MAX_FOLDER_DEPTH = 3
 CIVITAI_URL = "https://civitai.com/api/download/models/{model_id}"
+HF_HOSTS = ("huggingface.co", "www.huggingface.co", "hf.co")
+SOURCES = {
+    "civitai": {
+        "denied": "Civitai refused the download (check the API token or the model's access rules)",
+        "missing": "Model version not found on Civitai",
+        "name": "Civitai",
+    },
+    "huggingface": {
+        "denied": "Hugging Face refused the download (check your HF token, and accept the model's license on huggingface.co if it is gated)",
+        "missing": "File not found on Hugging Face (check the link)",
+        "name": "Hugging Face",
+    },
+}
 
 _downloads: Dict[str, Dict[str, Any]] = {}
 _tasks: Dict[str, "asyncio.Task"] = {}
@@ -127,26 +141,74 @@ def _public(d: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in d.items() if not k.startswith("_")}
 
 
-async def _run_download(dl_id: str, model_id: str, folder: str, token: str) -> None:
+def parse_hf_url(link: str):
+    """Turn a Hugging Face file link into (download_url, filename)."""
+    parts_url = urlsplit((link or "").strip())
+    if parts_url.scheme != "https" or (parts_url.hostname or "").lower() not in HF_HOSTS:
+        raise ModelManagerError("Paste a https://huggingface.co/... link to a file")
+    parts = [unquote(p) for p in parts_url.path.split("/") if p]
+    prefix: List[str] = []
+    if parts and parts[0] in ("datasets", "spaces"):
+        prefix = [parts[0]]
+        parts = parts[1:]
+    # Repos are "owner/name", but a few legacy ones have no owner ("gpt2").
+    kind_at = 1 if len(parts) > 1 and parts[1] in ("resolve", "blob") else 2
+    if len(parts) < kind_at + 3 or parts[kind_at] not in ("resolve", "blob"):
+        raise ModelManagerError("Paste a link to a file (.../resolve/main/<file> or .../blob/main/<file>)")
+    if any(p in (".", "..") for p in parts):
+        raise ModelManagerError("Invalid link")
+    repo_parts = parts[:kind_at]
+    revision = parts[kind_at + 1]
+    file_parts = parts[kind_at + 2:]
+    path = "/".join(quote(p, safe="") for p in prefix + repo_parts + ["resolve", revision] + file_parts)
+    return "https://huggingface.co/" + path + "?download=true", _safe_filename(file_parts[-1])
+
+
+async def _fetch(session, url: str, headers: Dict[str, str], auth_hosts):
+    """GET following redirects by hand so credentials only go to hosts we trust."""
+    for _ in range(6):
+        parts = urlsplit(url)
+        if parts.scheme != "https":
+            raise ModelManagerError("Refusing a non-https redirect")
+        send = headers if (parts.hostname or "").lower() in auth_hosts else {}
+        resp = await session.get(url, headers=send, allow_redirects=False)
+        location = resp.headers.get("Location")
+        if resp.status in (301, 302, 303, 307, 308) and location:
+            resp.release()
+            url = urljoin(url, location)
+            continue
+        return resp
+    raise ModelManagerError("Too many redirects")
+
+
+async def _run_download(
+    dl_id: str,
+    source: str,
+    url: str,
+    headers: Dict[str, str],
+    auth_hosts,
+    folder: str,
+    fixed_name: str,
+    fallback_name: str,
+) -> None:
     dl = _downloads[dl_id]
+    messages = SOURCES[source]
     part_path: Optional[str] = None
     try:
         target_dir = _resolve(folder)
         os.makedirs(target_dir, exist_ok=True)
-        url = CIVITAI_URL.format(model_id=model_id)
-        if token:
-            url += f"?token={token}"
         timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=120)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, allow_redirects=True) as resp:
+            resp = await _fetch(session, url, headers, auth_hosts)
+            try:
                 if resp.status in (401, 403):
-                    raise ModelManagerError("Civitai refused the download (check the API token or the model's access rules)")
+                    raise ModelManagerError(messages["denied"])
                 if resp.status == 404:
-                    raise ModelManagerError("Model version not found on Civitai")
+                    raise ModelManagerError(messages["missing"])
                 if resp.status != 200:
-                    raise ModelManagerError(f"Civitai returned HTTP {resp.status}")
+                    raise ModelManagerError(f"{messages['name']} returned HTTP {resp.status}")
                 cd = resp.content_disposition
-                filename = _safe_filename(cd.filename) if cd and cd.filename else f"civitai_{model_id}.safetensors"
+                filename = fixed_name or (_safe_filename(cd.filename) if cd and cd.filename else fallback_name)
                 dest = os.path.join(target_dir, filename)
                 if os.path.exists(dest):
                     raise ModelManagerError(f"{filename} already exists in that folder")
@@ -161,6 +223,8 @@ async def _run_download(dl_id: str, model_id: str, folder: str, token: str) -> N
                         dl["downloaded"] += len(chunk)
                         elapsed = max(time.monotonic() - started, 0.001)
                         dl["speed"] = dl["downloaded"] / elapsed
+            finally:
+                resp.release()
         os.replace(part_path, dest)
         part_path = None
         dl["status"] = "done"
@@ -251,15 +315,23 @@ def setup_model_routes():
 
     @routes.get("/model_manager/settings")
     async def mm_get_settings(request):
-        return web.json_response({"has_token": bool(storage.get_settings().get("civitai_token"))})
+        settings = storage.get_settings()
+        return web.json_response(
+            {"has_token": bool(settings.get("civitai_token")), "has_hf_token": bool(settings.get("hf_token"))}
+        )
 
     @routes.post("/model_manager/settings")
     async def mm_save_settings(request):
         data = await _json(request)
         if data is None:
             return _err("Invalid JSON")
-        settings = storage.save_settings(civitai_token=data.get("civitai_token", ""))
-        return web.json_response({"has_token": bool(settings.get("civitai_token"))})
+        settings = storage.save_settings(
+            civitai_token=data["civitai_token"] if "civitai_token" in data else None,
+            hf_token=data["hf_token"] if "hf_token" in data else None,
+        )
+        return web.json_response(
+            {"has_token": bool(settings.get("civitai_token")), "has_hf_token": bool(settings.get("hf_token"))}
+        )
 
     @routes.post("/model_manager/download")
     async def mm_download(request):
@@ -280,6 +352,7 @@ def setup_model_routes():
         dl_id = uuid.uuid4().hex
         _downloads[dl_id] = {
             "id": dl_id,
+            "source": "civitai",
             "model_id": model_id,
             "folder": _rel(target),
             "filename": "",
@@ -289,7 +362,42 @@ def setup_model_routes():
             "speed": 0,
             "error": "",
         }
-        _tasks[dl_id] = asyncio.get_running_loop().create_task(_run_download(dl_id, model_id, folder, token))
+        url = CIVITAI_URL.format(model_id=model_id) + (f"?token={token}" if token else "")
+        _tasks[dl_id] = asyncio.get_running_loop().create_task(
+            _run_download(dl_id, "civitai", url, {}, (), folder, "", f"civitai_{model_id}.safetensors")
+        )
+        return web.json_response(_public(_downloads[dl_id]))
+
+    @routes.post("/model_manager/download-hf")
+    async def mm_download_hf(request):
+        data = await _json(request)
+        if not data:
+            return _err("Invalid JSON")
+        try:
+            url, filename = parse_hf_url(data.get("url", ""))
+            target = _resolve(data.get("folder", ""))
+        except ModelManagerError as e:
+            return _err(str(e))
+        if os.path.exists(target) and not os.path.isdir(target):
+            return _err("Destination is not a folder")
+        token = storage.get_settings().get("hf_token", "")
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        dl_id = uuid.uuid4().hex
+        _downloads[dl_id] = {
+            "id": dl_id,
+            "source": "huggingface",
+            "model_id": "",
+            "folder": _rel(target),
+            "filename": filename,
+            "status": "starting",
+            "downloaded": 0,
+            "total": 0,
+            "speed": 0,
+            "error": "",
+        }
+        _tasks[dl_id] = asyncio.get_running_loop().create_task(
+            _run_download(dl_id, "huggingface", url, headers, HF_HOSTS, data.get("folder", ""), filename, filename)
+        )
         return web.json_response(_public(_downloads[dl_id]))
 
     @routes.get("/model_manager/downloads")

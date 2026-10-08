@@ -63,7 +63,12 @@ const CSS_TEXT = `
 .mm-dl-form { display: flex; align-items: center; gap: 6px; }
 .mm-dl-form .mm-input { width: 150px; }
 .mm-dl-form .mm-select { flex: 1; min-width: 0; }
+.mm-token-panel { display: flex; flex-direction: column; gap: 4px; }
 .mm-token-row { display: flex; align-items: center; gap: 6px; }
+.mm-token-label { width: 90px; flex-shrink: 0; color: var(--descrip-text, #999); font-size: 11px; }
+.mm-hf-form { display: flex; align-items: center; gap: 6px; }
+.mm-hf-form .mm-input { flex: 1; min-width: 0; }
+.mm-hf-target { font-size: 10px; color: var(--descrip-text, #999); }
 .mm-token-row .mm-input { flex: 1; }
 .mm-dl-list { display: flex; flex-direction: column; gap: 4px; max-height: 90px; overflow: auto; }
 .mm-dl-item { display: flex; flex-direction: column; gap: 2px; }
@@ -143,6 +148,7 @@ function setupModelManagerWidget(node) {
         cache: new Map(),
         allFolders: [""],
         hasToken: false,
+        hasHfToken: false,
         tokenOpen: false,
         listError: "",
         dlError: "",
@@ -155,20 +161,29 @@ function setupModelManagerWidget(node) {
 
     const header = el("div", "mm-header");
     header.appendChild(el("div", "mm-title", "Model Manager"));
-    const tokenBtn = el("button", "mm-btn", "🔑 Civitai token");
+    const tokenBtn = el("button", "mm-btn", "🔑 Tokens");
     const refreshBtn = el("button", "mm-btn", "⟳ Refresh");
     header.appendChild(tokenBtn);
     header.appendChild(refreshBtn);
     root.appendChild(header);
 
-    const tokenRow = el("div", "mm-token-row");
+    const tokenRow = el("div", "mm-token-panel");
     tokenRow.style.display = "none";
-    const tokenInput = el("input", "mm-input");
-    tokenInput.type = "password";
-    tokenInput.autocomplete = "off";
-    const tokenSave = el("button", "mm-btn mm-primary", "Save token");
-    tokenRow.appendChild(tokenInput);
-    tokenRow.appendChild(tokenSave);
+    function tokenField(label) {
+        const row = el("div", "mm-token-row");
+        const lab = el("span", "mm-token-label", label);
+        const input = el("input", "mm-input");
+        input.type = "password";
+        input.autocomplete = "off";
+        const save = el("button", "mm-btn mm-primary", "Save");
+        row.appendChild(lab);
+        row.appendChild(input);
+        row.appendChild(save);
+        tokenRow.appendChild(row);
+        return { input, save };
+    }
+    const civitaiToken = tokenField("Civitai");
+    const hfToken = tokenField("Hugging Face");
     root.appendChild(tokenRow);
 
     const main = el("div", "mm-main");
@@ -193,10 +208,20 @@ function setupModelManagerWidget(node) {
     dlForm.appendChild(idInput);
     dlForm.appendChild(folderSelect);
     dlForm.appendChild(dlBtn);
+    const hfForm = el("div", "mm-hf-form");
+    const hfInput = el("input", "mm-input");
+    hfInput.type = "text";
+    hfInput.placeholder = "Hugging Face file link (https://huggingface.co/.../resolve/main/model.safetensors)";
+    const hfBtn = el("button", "mm-btn mm-primary", "⬇ Hugging Face");
+    hfForm.appendChild(hfInput);
+    hfForm.appendChild(hfBtn);
+    const hfTarget = el("div", "mm-hf-target");
     const dlErr = el("div", "mm-error");
     dlErr.style.display = "none";
     const dlList = el("div", "mm-dl-list");
     dlBox.appendChild(dlForm);
+    dlBox.appendChild(hfForm);
+    dlBox.appendChild(hfTarget);
     dlBox.appendChild(dlErr);
     dlBox.appendChild(dlList);
     root.appendChild(dlBox);
@@ -298,6 +323,7 @@ function setupModelManagerWidget(node) {
 
     async function renderFiles() {
         crumb.textContent = "models" + (state.currentPath ? "/" + state.currentPath : "");
+        hfTarget.textContent = "Hugging Face downloads are saved in the open folder: models" + (state.currentPath ? "/" + state.currentPath : "");
         list.innerHTML = "";
         let data;
         try {
@@ -465,7 +491,7 @@ function setupModelManagerWidget(node) {
         for (const d of state.downloads) {
             const item = el("div", "mm-dl-item");
             const top = el("div", "mm-dl-top");
-            const name = el("span", "mm-dl-name", d.filename || `Model ${d.model_id}`);
+            const name = el("span", "mm-dl-name", (d.source === "huggingface" ? "🤗 " : "") + (d.filename || `Model ${d.model_id}`));
             name.title = `-> models/${d.folder}`;
             top.appendChild(name);
             const active = d.status === "starting" || d.status === "downloading";
@@ -568,28 +594,54 @@ function setupModelManagerWidget(node) {
         if (ev.key === "Enter") dlBtn.click();
     });
 
-    function updateTokenUi() {
-        tokenBtn.textContent = state.hasToken ? "🔑 Civitai token ✓" : "🔑 Civitai token";
-        tokenInput.placeholder = state.hasToken ? "Token saved — paste a new one to replace it" : "Paste your Civitai API token";
-    }
-    tokenBtn.addEventListener("click", () => {
-        state.tokenOpen = !state.tokenOpen;
-        tokenRow.style.display = state.tokenOpen ? "" : "none";
+    hfBtn.addEventListener("click", async () => {
+        dlErr.style.display = "none";
+        const url = hfInput.value.trim();
+        if (!url) {
+            dlErr.textContent = "Paste a Hugging Face file link.";
+            dlErr.style.display = "";
+            return;
+        }
+        hfBtn.disabled = true;
+        try {
+            await postJson("/model_manager/download-hf", { url, folder: state.currentPath });
+            hfInput.value = "";
+            await pollDownloads();
+        } catch (e) {
+            dlErr.textContent = e.message;
+            dlErr.style.display = "";
+        }
+        hfBtn.disabled = false;
     });
-    tokenSave.addEventListener("click", async () => {
-        const value = tokenInput.value.trim();
+    hfInput.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") hfBtn.click();
+    });
+
+    async function saveToken(field, key, stateKey) {
+        const value = field.input.value.trim();
         if (!value) return;
         try {
-            const data = await postJson("/model_manager/settings", { civitai_token: value });
+            const data = await postJson("/model_manager/settings", { [key]: value });
             state.hasToken = data.has_token;
-            tokenInput.value = "";
-            state.tokenOpen = false;
-            tokenRow.style.display = "none";
+            state.hasHfToken = data.has_hf_token;
+            field.input.value = "";
             updateTokenUi();
         } catch (e) {
             dlErr.textContent = e.message;
             dlErr.style.display = "";
         }
+    }
+    civitaiToken.save.addEventListener("click", () => saveToken(civitaiToken, "civitai_token"));
+    hfToken.save.addEventListener("click", () => saveToken(hfToken, "hf_token"));
+
+    function updateTokenUi() {
+        tokenBtn.textContent = "🔑 Tokens" + (state.hasToken || state.hasHfToken ? " ✓" : "");
+        civitaiToken.input.placeholder = state.hasToken ? "Token saved — paste a new one to replace it" : "Paste your Civitai API token";
+        hfToken.input.placeholder = state.hasHfToken ? "Token saved — paste a new one to replace it" : "Paste your Hugging Face token (hf_...)";
+    }
+    tokenBtn.addEventListener("click", () => {
+        state.tokenOpen = !state.tokenOpen;
+        tokenRow.style.display = state.tokenOpen ? "" : "none";
     });
 
     refreshBtn.addEventListener("click", async () => {
@@ -600,17 +652,18 @@ function setupModelManagerWidget(node) {
     });
 
     node.addDOMWidget("model_manager_ui", "model_manager", root, {
-        getMinHeight: () => 440,
+        getMinHeight: () => 500,
         hideOnZoom: false,
     });
     if (node.size[0] < 820) node.size[0] = 820;
-    if (node.size[1] < 520) node.size[1] = 520;
+    if (node.size[1] < 580) node.size[1] = 580;
 
     updateTokenUi();
     (async () => {
         try {
             const s = await apiJson("/model_manager/settings");
             state.hasToken = s.has_token;
+            state.hasHfToken = s.has_hf_token;
             updateTokenUi();
         } catch (e) {
             console.error("ModelManager: failed to load settings", e);
