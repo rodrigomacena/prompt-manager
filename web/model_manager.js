@@ -73,6 +73,10 @@ const CSS_TEXT = `
     position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
     background: rgba(59,111,216,0.28); border: 2px dashed #3b8bff; border-radius: 6px; font-size: 14px; color: #fff; pointer-events: none;
 }
+.mm-filebar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border-color, #3a3a3a); }
+.mm-filebar .mm-check { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; font-size: 11px; }
+.mm-filebar .mm-zip-status { color: var(--descrip-text, #999); font-size: 10px; flex: 1; text-align: right; }
+.mm-row input[type=checkbox] { margin: 0; cursor: pointer; flex-shrink: 0; }
 .mm-hf-target { font-size: 10px; color: var(--descrip-text, #999); }
 .mm-token-row .mm-input { flex: 1; }
 .mm-dl-list { display: flex; flex-direction: column; gap: 4px; max-height: 90px; overflow: auto; }
@@ -153,6 +157,8 @@ function setupModelManagerWidget(node) {
         cache: new Map(),
         allFolders: [""],
         uploads: [],
+        picked: new Set(),
+        pickedFolder: "",
         hasToken: false,
         hasHfToken: false,
         tokenOpen: false,
@@ -205,7 +211,20 @@ function setupModelManagerWidget(node) {
     const filesPane = el("div", "mm-pane mm-files");
     const crumb = el("div", "mm-crumb");
     const list = el("div", "mm-list");
+    const fileBar = el("div", "mm-filebar");
+    const selectAllLabel = el("label", "mm-check");
+    const selectAllBox = el("input");
+    selectAllBox.type = "checkbox";
+    selectAllLabel.appendChild(selectAllBox);
+    selectAllLabel.appendChild(el("span", null, "Select all"));
+    const zipBtn = el("button", "mm-btn mm-primary", "⬇ Download zip");
+    const zipStatus = el("span", "mm-zip-status");
+    fileBar.appendChild(selectAllLabel);
+    fileBar.appendChild(zipBtn);
+    fileBar.appendChild(zipStatus);
+    fileBar.style.display = "none";
     filesPane.appendChild(crumb);
+    filesPane.appendChild(fileBar);
     filesPane.appendChild(list);
     main.appendChild(treePane);
     main.appendChild(filesPane);
@@ -288,6 +307,7 @@ function setupModelManagerWidget(node) {
     }
 
     async function openFolder(path) {
+        if (path !== state.currentPath) state.picked.clear();
         state.currentPath = path;
         state.expanded.add(path);
         let p = path;
@@ -358,8 +378,19 @@ function setupModelManagerWidget(node) {
             row.addEventListener("click", () => openFolder(joinPath(state.currentPath, f.name)));
             list.appendChild(row);
         }
+        const names = new Set(data.files.map((f) => f.name));
+        for (const n of [...state.picked]) if (!names.has(n)) state.picked.delete(n);
         for (const f of data.files) {
             const row = el("div", "mm-row");
+            const pick = el("input");
+            pick.type = "checkbox";
+            pick.checked = state.picked.has(f.name);
+            pick.addEventListener("change", () => {
+                if (pick.checked) state.picked.add(f.name);
+                else state.picked.delete(f.name);
+                updateFileBar(data);
+            });
+            row.appendChild(pick);
             const name = el("span", "mm-name", "📄 " + f.name);
             name.title = f.name;
             row.appendChild(name);
@@ -378,7 +409,56 @@ function setupModelManagerWidget(node) {
         if (!data.folders.length && !data.files.length) {
             list.appendChild(el("div", "mm-empty", "This folder is empty."));
         }
+        updateFileBar(data);
     }
+
+    function updateFileBar(data) {
+        const total = data.files.length;
+        fileBar.style.display = total ? "" : "none";
+        const count = state.picked.size;
+        selectAllBox.checked = total > 0 && count === total;
+        selectAllBox.indeterminate = count > 0 && count < total;
+        zipBtn.disabled = count === 0;
+        zipBtn.textContent = count ? `⬇ Download zip (${count})` : "⬇ Download zip";
+        for (const box of list.querySelectorAll("input[type=checkbox]")) {
+            const row = box.closest(".mm-row");
+            const fileName = row && row.querySelector(".mm-name") ? row.querySelector(".mm-name").title : "";
+            if (fileName) box.checked = state.picked.has(fileName);
+        }
+        pendingBar = data;
+    }
+    let pendingBar = null;
+    let zipStatusTimer = null;
+    function setZipStatus(text) {
+        zipStatus.textContent = text;
+        clearTimeout(zipStatusTimer);
+        if (text) zipStatusTimer = setTimeout(() => (zipStatus.textContent = ""), 8000);
+    }
+    selectAllBox.addEventListener("change", () => {
+        if (!pendingBar) return;
+        state.picked.clear();
+        if (selectAllBox.checked) for (const f of pendingBar.files) state.picked.add(f.name);
+        updateFileBar(pendingBar);
+    });
+    zipBtn.addEventListener("click", async () => {
+        if (!state.picked.size) return;
+        zipBtn.disabled = true;
+        setZipStatus("Preparing the zip...");
+        try {
+            const paths = [...state.picked].map((n) => joinPath(state.currentPath, n));
+            const job = await postJson("/model_manager/zip-job", { paths });
+            const a = document.createElement("a");
+            a.href = api.apiURL(`/model_manager/zip/${job.token}`);
+            a.download = job.name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setZipStatus(`Download started: ${job.name} (${job.count} file${job.count === 1 ? "" : "s"}, ${formatSize(job.size)}). Check your browser's downloads.`);
+        } catch (e) {
+            setZipStatus(e.message);
+        }
+        if (pendingBar) updateFileBar(pendingBar);
+    });
 
     async function renderAll() {
         await Promise.all([renderTree(), renderFiles()]);

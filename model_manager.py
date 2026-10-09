@@ -7,8 +7,11 @@ from the frontend is resolved and rejected if it escapes that directory.
 import asyncio
 import os
 import re
+import shutil
+import threading
 import time
 import uuid
+import zipfile
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, unquote, urljoin, urlsplit
 
@@ -24,6 +27,9 @@ MODELS_DIR = os.path.normpath(os.path.abspath(folder_paths.models_dir))
 MAX_FOLDER_DEPTH = 3
 CIVITAI_URL = "https://civitai.com/api/download/models/{model_id}"
 HF_HOSTS = ("huggingface.co", "www.huggingface.co", "hf.co")
+MAX_ZIP_FILES = 1000
+ZIP_JOB_TTL = 600
+_zip_jobs: Dict[str, Dict[str, Any]] = {}
 BLOCKED_UPLOAD_EXTS = {".py", ".pyc", ".sh", ".bat", ".cmd", ".ps1", ".exe", ".dll", ".so", ".msi"}
 SOURCES = {
     "civitai": {
@@ -250,6 +256,30 @@ async def _run_download(
         _tasks.pop(dl_id, None)
 
 
+class _ZipSink:
+    """Write-only, non-seekable file object: zip bytes are handed to the HTTP response as they are produced."""
+
+    def __init__(self, loop, queue, cancelled):
+        self._loop = loop
+        self._queue = queue
+        self._cancelled = cancelled
+
+    def write(self, data):
+        if self._cancelled.is_set():
+            raise OSError("download cancelled")
+        asyncio.run_coroutine_threadsafe(self._queue.put(bytes(data)), self._loop).result()
+        return len(data)
+
+    def flush(self):
+        pass
+
+
+def _purge_zip_jobs() -> None:
+    now = time.time()
+    for token in [t for t, j in _zip_jobs.items() if j["expires"] < now]:
+        _zip_jobs.pop(token, None)
+
+
 def _err(message: str, status: int = 400):
     return web.json_response({"error": message}, status=status)
 
@@ -355,6 +385,96 @@ def setup_model_routes():
         if not saved and errors:
             return _err(errors[0])
         return web.json_response({"saved": saved, "errors": errors})
+
+    @routes.post("/model_manager/zip-job")
+    async def mm_zip_job(request):
+        data = await _json(request)
+        if not data:
+            return _err("Invalid JSON")
+        raw = data.get("paths")
+        if not isinstance(raw, list) or not raw:
+            return _err("Select at least one file")
+        if len(raw) > MAX_ZIP_FILES:
+            return _err(f"Select at most {MAX_ZIP_FILES} files at a time")
+        files = []
+        seen = set()
+        total = 0
+        try:
+            for rel in raw:
+                full = _resolve(str(rel))
+                if not os.path.isfile(full):
+                    raise ModelManagerError("File not found")
+                arcname = os.path.basename(full)
+                if arcname in seen:
+                    raise ModelManagerError("Two selected files have the same name")
+                seen.add(arcname)
+                files.append((full, arcname))
+                total += os.path.getsize(full)
+        except ModelManagerError as e:
+            return _err(str(e))
+        except OSError as e:
+            return _err(f"Could not read a file: {e.strerror}")
+        if len(files) == 1:
+            name = os.path.splitext(files[0][1])[0] + ".zip"
+        else:
+            folder_name = os.path.basename(os.path.dirname(files[0][0])) or "models"
+            name = f"{folder_name}_{len(files)}_files.zip"
+        _purge_zip_jobs()
+        token = uuid.uuid4().hex
+        _zip_jobs[token] = {"files": files, "name": name, "expires": time.time() + ZIP_JOB_TTL}
+        return web.json_response({"token": token, "name": name, "count": len(files), "size": total})
+
+    @routes.get("/model_manager/zip/{token}")
+    async def mm_zip_get(request):
+        _purge_zip_jobs()
+        job = _zip_jobs.get(request.match_info["token"])
+        if not job:
+            return _err("This download link expired. Select the files again.", 404)
+        name = job["name"]
+        ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+        quote_char = chr(34)
+        disposition = "attachment; filename=" + quote_char + ascii_name + quote_char + "; filename*=UTF-8''" + quote(name)
+        resp = web.StreamResponse(
+            headers={"Content-Type": "application/zip", "Content-Disposition": disposition, "Cache-Control": "no-store"}
+        )
+        await resp.prepare(request)
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+        cancelled = threading.Event()
+        files = job["files"]
+
+        def build():
+            try:
+                with zipfile.ZipFile(_ZipSink(loop, queue, cancelled), "w", zipfile.ZIP_STORED) as zf:
+                    for full, arcname in files:
+                        info = zipfile.ZipInfo.from_file(full, arcname)
+                        info.compress_type = zipfile.ZIP_STORED
+                        with open(full, "rb") as src, zf.open(info, "w", force_zip64=True) as dst:
+                            shutil.copyfileobj(src, dst, 1024 * 1024)
+            except Exception:
+                pass
+            finally:
+                asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+
+        worker = loop.run_in_executor(None, build)
+        finished = False
+        try:
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    finished = True
+                    break
+                await resp.write(chunk)
+            await resp.write_eof()
+        except (ConnectionResetError, asyncio.CancelledError):
+            raise
+        finally:
+            cancelled.set()
+            while not finished:
+                if await queue.get() is None:
+                    finished = True
+            await worker
+        return resp
 
     @routes.post("/model_manager/rename")
     async def mm_rename(request):
