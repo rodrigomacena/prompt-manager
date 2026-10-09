@@ -27,7 +27,13 @@ const CSS_TEXT = `
     overflow: hidden;
 }
 .im-root * { box-sizing: border-box; }
-.im-header { display: flex; align-items: center; gap: 8px; }
+.im-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.im-check { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--input-text, #ddd); cursor: pointer; user-select: none; }
+.im-badge {
+    position: absolute; top: 4px; left: 4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+    background: #3b8bff; color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; display: none;
+}
+.im-cell.im-picked .im-badge { display: block; }
 .im-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--descrip-text, #888); }
 .im-spacer { flex: 1; }
 .im-select, .im-btn {
@@ -152,10 +158,14 @@ function setupInputManagerWidget(node) {
     const imageWidget = node.widgets.find((w) => w.name === "image");
     const maskWidget = node.widgets.find((w) => w.name === "mask_id");
     const keepWidget = node.widgets.find((w) => w.name === "keep_id");
+    const imagesWidget = node.widgets.find((w) => w.name === "images");
+    const layoutWidget = node.widgets.find((w) => w.name === "layout");
     hideWidget(directoryWidget);
     hideWidget(imageWidget);
     hideWidget(maskWidget);
     hideWidget(keepWidget);
+    hideWidget(imagesWidget);
+    hideWidget(layoutWidget);
 
     if (!node.properties) node.properties = {};
     if (node.properties.thumbSize === undefined) node.properties.thumbSize = DEFAULT_THUMB;
@@ -169,6 +179,9 @@ function setupInputManagerWidget(node) {
         selected: imageWidget.value || "",
         sortBy: node.properties.sortBy,
         sortOrder: node.properties.sortOrder,
+        multi: node.properties.multi === true,
+        selectedList: [],
+        layout: layoutWidget.value === "vertical" ? "vertical" : "horizontal",
         layer: "mask",
         brush: Number(node.properties.brushSize) || 30,
         erasing: false,
@@ -200,6 +213,22 @@ function setupInputManagerWidget(node) {
     sortWrap.appendChild(sortSelect);
     sortWrap.appendChild(orderBtn);
     header.appendChild(sortWrap);
+    const multiLabel = el("label", "im-check");
+    const multiBox = el("input");
+    multiBox.type = "checkbox";
+    multiLabel.appendChild(multiBox);
+    multiLabel.appendChild(el("span", null, "Multi-image"));
+    multiLabel.title = "Ctrl+click (or tap) several pictures to join them into one output image";
+    const layoutSelect = el("select", "im-select");
+    layoutSelect.style.minWidth = "0";
+    for (const [value, label] of [["horizontal", "Side by side"], ["vertical", "Stacked"]]) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        layoutSelect.appendChild(opt);
+    }
+    header.appendChild(multiLabel);
+    header.appendChild(layoutSelect);
     header.appendChild(el("div", "im-spacer"));
     const sliderWrap = el("div", "im-slider-wrap");
     sliderWrap.appendChild(el("span", null, "Thumbs"));
@@ -432,7 +461,7 @@ function setupInputManagerWidget(node) {
     }
 
     function updateTools() {
-        const on = !!state.selected;
+        const on = !!state.selected && !isJoined();
         for (const b of [drawBtn, eraseBtn, clearMaskBtn, brushSlider, layerMaskBtn, layerKeepBtn]) b.disabled = !on;
         drawBtn.classList.toggle("im-active", !state.erasing);
         eraseBtn.classList.toggle("im-active", state.erasing);
@@ -451,7 +480,8 @@ function setupInputManagerWidget(node) {
     function renderPreview(force) {
         updateTools();
         const info = findImage(state.selected);
-        const key = state.selected ? `${state.selected}:${info ? info.mtime : 0}` : "";
+        const joinedKey = isJoined() ? `join:${state.layout}:${state.selectedList.map((x) => x + ":" + ((findImage(x) || {}).mtime || 0)).join("|")}` : "";
+        const key = joinedKey || (state.selected ? `${state.selected}:${info ? info.mtime : 0}` : "");
         if (!force && key === previewKey && previewBox.firstChild) return;
         previewKey = key;
         previewBox.innerHTML = "";
@@ -459,6 +489,24 @@ function setupInputManagerWidget(node) {
         for (const layer of Object.values(layers)) {
             layer.canvas = null;
             layer.ctx = null;
+        }
+        if (isJoined()) {
+            const joined = document.createElement("img");
+            joined.style.maxWidth = "100%";
+            joined.style.maxHeight = "100%";
+            joined.style.objectFit = "contain";
+            joined.src = api.apiURL(
+                `/input_manager/stitch?data=${encodeURIComponent(JSON.stringify({ images: state.selectedList, layout: state.layout }))}&max=1024&v=${Date.now()}`
+            );
+            joined.addEventListener("load", () => {
+                previewInfo.textContent = `${state.selectedList.length} images joined ${state.layout === "vertical" ? "stacked" : "side by side"}, in click order. Painting is off while several images are joined.`;
+            });
+            joined.addEventListener("error", () => {
+                previewBox.innerHTML = "";
+                previewBox.appendChild(el("div", "im-empty", "These images could not be joined."));
+            });
+            previewBox.appendChild(joined);
+            return;
         }
         if (!state.selected) {
             previewBox.appendChild(el("div", "im-empty", "Click a thumbnail to choose the output image. Double-click to enlarge."));
@@ -509,19 +557,45 @@ function setupInputManagerWidget(node) {
         if (wrap && img) fitPaintWrap(wrap, img);
     }).observe(previewBox);
 
+    function isJoined() {
+        return state.multi && state.selectedList.length >= 2;
+    }
+
     function updateSelectionClasses() {
         for (const cell of grid.children) {
-            cell.classList.toggle("im-selected", cell.dataset.path === state.selected);
+            const index = state.selectedList.indexOf(cell.dataset.path);
+            const picked = index >= 0;
+            cell.classList.toggle("im-selected", picked);
+            cell.classList.toggle("im-picked", picked && state.multi && state.selectedList.length >= 2);
+            const badge = cell.querySelector(".im-badge");
+            if (badge) badge.textContent = picked ? String(index + 1) : "";
         }
     }
 
-    function select(path) {
-        if (path !== state.selected) discardAllLayers();
-        state.selected = path;
-        imageWidget.value = path;
+    function setSelection(list) {
+        const primary = list[0] || "";
+        if (primary !== state.selected || list.length >= 2) discardAllLayers();
+        state.selectedList = list;
+        state.selected = primary;
+        imageWidget.value = primary;
+        imagesWidget.value = JSON.stringify(list.length >= 2 ? list : []);
         directoryWidget.value = state.dir;
         updateSelectionClasses();
         renderPreview();
+    }
+
+    function select(path) {
+        setSelection(path ? [path] : []);
+    }
+
+    function onCellClick(ev, path) {
+        const additive = state.multi && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.pointerType === "touch");
+        if (!additive) {
+            select(path);
+            return;
+        }
+        const list = state.selectedList.includes(path) ? state.selectedList.filter((x) => x !== path) : [...state.selectedList, path];
+        setSelection(list);
     }
 
     function renderGrid() {
@@ -537,7 +611,8 @@ function setupInputManagerWidget(node) {
         }
         for (const info of state.images) {
             const path = joinPath(state.dir, info.name);
-            const cell = el("div", "im-cell" + (path === state.selected ? " im-selected" : ""));
+            const index = state.selectedList.indexOf(path);
+            const cell = el("div", "im-cell" + (index >= 0 ? " im-selected" : "") + (index >= 0 && isJoined() ? " im-picked" : ""));
             cell.dataset.path = path;
             const img = document.createElement("img");
             img.loading = "lazy";
@@ -546,10 +621,11 @@ function setupInputManagerWidget(node) {
             img.src = imageUrl("thumb", path, info.mtime);
             cell.appendChild(img);
             cell.appendChild(el("div", "im-cell-name", info.name));
+            cell.appendChild(el("div", "im-badge", index >= 0 ? String(index + 1) : ""));
             cell.title = info.name;
-            cell.addEventListener("click", () => select(path));
+            cell.addEventListener("click", (ev) => onCellClick(ev, path));
             cell.addEventListener("dblclick", () => {
-                select(path);
+                if (!state.multi) select(path);
                 openLightbox(path);
             });
             grid.appendChild(cell);
@@ -649,7 +725,7 @@ function setupInputManagerWidget(node) {
                     yes.disabled = false;
                     return;
                 }
-                if (state.selected === path) select("");
+                if (state.selectedList.includes(path)) setSelection(state.selectedList.filter((x) => x !== path));
                 close();
                 await loadImages();
             });
@@ -753,6 +829,28 @@ function setupInputManagerWidget(node) {
         await discardLayer(layer);
     });
 
+    function updateMultiUi() {
+        multiBox.checked = state.multi;
+        layoutSelect.style.display = state.multi ? "" : "none";
+        layoutSelect.value = state.layout;
+    }
+    multiBox.addEventListener("change", () => {
+        state.multi = multiBox.checked;
+        node.properties.multi = state.multi;
+        updateMultiUi();
+        if (!state.multi && state.selectedList.length > 1) select(state.selected);
+        else {
+            updateSelectionClasses();
+            renderPreview(true);
+        }
+    });
+    layoutSelect.addEventListener("change", () => {
+        state.layout = layoutSelect.value;
+        layoutWidget.value = state.layout;
+        renderPreview();
+    });
+    updateMultiUi();
+
     function updateSortUi() {
         sortSelect.value = state.sortBy;
         orderBtn.textContent = state.sortOrder === "asc" ? "↑" : "↓";
@@ -801,6 +899,17 @@ function setupInputManagerWidget(node) {
     function refreshFromWidgets() {
         state.dir = directoryWidget.value || DEFAULT_DIR;
         state.selected = imageWidget.value || "";
+        state.multi = node.properties.multi === true;
+        state.layout = layoutWidget.value === "vertical" ? "vertical" : "horizontal";
+        let joinedList = [];
+        try {
+            const parsed = JSON.parse(imagesWidget.value || "[]");
+            if (Array.isArray(parsed)) joinedList = parsed.filter((x) => typeof x === "string");
+        } catch (e) {
+            joinedList = [];
+        }
+        state.selectedList = joinedList.length >= 2 ? joinedList : state.selected ? [state.selected] : [];
+        updateMultiUi();
         layers.mask.id = maskWidget.value || "";
         layers.keep.id = keepWidget.value || "";
         state.brush = Number(node.properties.brushSize) || 30;
@@ -817,6 +926,7 @@ function setupInputManagerWidget(node) {
     }
     node._imRefreshFromWidgets = refreshFromWidgets;
 
+    state.selectedList = state.selected ? [state.selected] : [];
     applyGridSize();
     renderDirSelect();
     renderPreview();

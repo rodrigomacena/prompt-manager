@@ -2,7 +2,16 @@ import os
 import random
 
 from . import storage
-from .input_manager import InputManagerError, load_image_tensor, load_painted_mask, mask_path, resolve_image
+from .input_manager import (
+    InputManagerError,
+    load_image_tensor,
+    load_painted_mask,
+    mask_path,
+    parse_image_list,
+    pil_to_tensors,
+    resolve_image,
+    stitch_images,
+)
 
 MODE_FIXED = "fixed"
 MODE_RANDOM = "random"
@@ -88,11 +97,21 @@ class InputManagerNode:
                 "image": ("STRING", {"default": "", "multiline": False}),
                 "mask_id": ("STRING", {"default": "", "multiline": False}),
                 "keep_id": ("STRING", {"default": "", "multiline": False}),
+                "images": ("STRING", {"default": "[]", "multiline": False}),
+                "layout": (["horizontal", "vertical"], {"default": "horizontal"}),
             },
         }
 
-    def run(self, directory, image, mask_id="", keep_id=""):
+    def run(self, directory, image, mask_id="", keep_id="", images="[]", layout="horizontal"):
         import torch
+
+        joined = parse_image_list(images)
+        if len(joined) >= 2:
+            paths = [resolve_image(r) for r in joined]
+            tensor, mask = pil_to_tensors(stitch_images(paths, layout))
+            width, height = int(tensor.shape[2]), int(tensor.shape[1])
+            cropped = torch.cat([tensor, (1.0 - mask).unsqueeze(-1)], dim=-1)
+            return (tensor, mask, "+".join(os.path.basename(p) for p in paths), width, height, cropped)
 
         path = resolve_image(image)
         tensor, mask = load_image_tensor(path)
@@ -114,8 +133,15 @@ class InputManagerNode:
         return (tensor, mask, os.path.basename(path), width, height, cropped)
 
     @classmethod
-    def IS_CHANGED(cls, directory, image, mask_id="", keep_id=""):
+    def IS_CHANGED(cls, directory, image, mask_id="", keep_id="", images="[]", layout="horizontal"):
         try:
+            joined = parse_image_list(images)
+            if len(joined) >= 2:
+                key = layout
+                for rel in joined:
+                    st = os.stat(resolve_image(rel))
+                    key += f":{rel}:{st.st_mtime_ns}:{st.st_size}"
+                return key
             path = resolve_image(image)
             st = os.stat(path)
             key = f"{image}:{st.st_mtime_ns}:{st.st_size}"
@@ -128,10 +154,12 @@ class InputManagerNode:
             return image
 
     @classmethod
-    def VALIDATE_INPUTS(cls, directory, image, mask_id="", keep_id=""):
+    def VALIDATE_INPUTS(cls, directory, image, mask_id="", keep_id="", images="[]", layout="horizontal"):
         if not image:
             return "Pick an image in the Input Manager gallery first"
         try:
+            for rel in parse_image_list(images):
+                resolve_image(rel)
             resolve_image(image)
         except InputManagerError as e:
             return str(e)

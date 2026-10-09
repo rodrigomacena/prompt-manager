@@ -6,6 +6,8 @@ ComfyUI base directory or doesn't point at an image file.
 
 import asyncio
 import hashlib
+import io
+import json
 import os
 import re
 import uuid
@@ -22,6 +24,9 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 SKIP_DIRS = {"models", "custom_nodes", "__pycache__", "node_modules", "venv", "site-packages"}
 MAX_DIR_DEPTH = 3
 MAX_IMAGES = 3000
+MAX_JOIN_IMAGES = 20
+MAX_JOIN_PIXELS = 120_000_000
+LAYOUTS = ("horizontal", "vertical")
 THUMB_SIZE = 320
 
 try:
@@ -130,12 +135,11 @@ def list_images(rel_dir: str, sort: str = "date", order: str = "") -> Dict[str, 
     return {"dir": rel_of(full), "images": images[:MAX_IMAGES], "total": len(images), "truncated": truncated}
 
 
-def load_image_tensor(full_path: str):
+def pil_to_tensors(img):
+    """PIL image -> (IMAGE tensor [1,H,W,3], MASK tensor [1,H,W] built from the alpha channel)."""
     import numpy as np
     import torch
 
-    img = Image.open(full_path)
-    img = ImageOps.exif_transpose(img)
     if img.mode == "I":
         img = img.point(lambda i: i * (1 / 255))
     rgb = img.convert("RGB")
@@ -145,6 +149,56 @@ def load_image_tensor(full_path: str):
     else:
         mask = torch.zeros((rgb.height, rgb.width), dtype=torch.float32)
     return image, mask.unsqueeze(0)
+
+
+def load_image_tensor(full_path: str):
+    img = Image.open(full_path)
+    img = ImageOps.exif_transpose(img)
+    return pil_to_tensors(img)
+
+
+def parse_image_list(raw) -> List[str]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        raise InputManagerError("Invalid image list")
+    if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
+        raise InputManagerError("Invalid image list")
+    if len(data) > MAX_JOIN_IMAGES:
+        raise InputManagerError(f"Join at most {MAX_JOIN_IMAGES} images")
+    return data
+
+
+def stitch_images(paths: List[str], layout: str):
+    """Glue the images edge to edge in order, scaled to the first image's height (horizontal) or width (vertical)."""
+    if layout not in LAYOUTS:
+        layout = "horizontal"
+    frames = []
+    for p in paths:
+        with Image.open(p) as im:
+            frames.append(ImageOps.exif_transpose(im).convert("RGBA"))
+    ref_w, ref_h = frames[0].size
+    scaled = []
+    for f in frames:
+        if layout == "horizontal" and f.height != ref_h:
+            f = f.resize((max(1, round(f.width * ref_h / f.height)), ref_h), Image.LANCZOS)
+        elif layout == "vertical" and f.width != ref_w:
+            f = f.resize((ref_w, max(1, round(f.height * ref_w / f.width))), Image.LANCZOS)
+        scaled.append(f)
+    if layout == "horizontal":
+        size = (sum(f.width for f in scaled), ref_h)
+    else:
+        size = (ref_w, sum(f.height for f in scaled))
+    if size[0] * size[1] > MAX_JOIN_PIXELS:
+        raise InputManagerError("The joined image would be too large")
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    offset = 0
+    for f in scaled:
+        canvas.paste(f, (offset, 0) if layout == "horizontal" else (0, offset))
+        offset += f.width if layout == "horizontal" else f.height
+    return canvas
 
 
 def _make_thumb(src: str, dest: str) -> None:
@@ -209,6 +263,34 @@ def setup_input_routes():
                     except Exception:
                         return _err("Could not read this image", 415)
         return web.FileResponse(dest, headers={"Cache-Control": "public, max-age=86400"})
+
+    @routes.get("/input_manager/stitch")
+    async def im_stitch(request):
+        try:
+            data = json.loads(request.query.get("data", "{}"))
+            rels = parse_image_list(data.get("images", []))
+            if len(rels) < 2:
+                raise InputManagerError("Select at least two images")
+            paths = [resolve_image(r) for r in rels]
+            layout = data.get("layout", "horizontal")
+            limit = max(64, min(int(request.query.get("max", "1024")), 2048))
+        except (InputManagerError, ValueError, AttributeError) as e:
+            return _err(str(e) or "Invalid request", 400)
+
+        def build():
+            canvas = stitch_images(paths, layout)
+            canvas.thumbnail((limit, limit))
+            buf = io.BytesIO()
+            canvas.save(buf, "PNG")
+            return buf.getvalue()
+
+        try:
+            body = await asyncio.get_running_loop().run_in_executor(None, build)
+        except InputManagerError as e:
+            return _err(str(e))
+        except Exception:
+            return _err("Could not join these images", 415)
+        return web.Response(body=body, content_type="image/png", headers={"Cache-Control": "no-cache"})
 
     @routes.get("/input_manager/image")
     async def im_image(request):
