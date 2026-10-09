@@ -24,6 +24,7 @@ MODELS_DIR = os.path.normpath(os.path.abspath(folder_paths.models_dir))
 MAX_FOLDER_DEPTH = 3
 CIVITAI_URL = "https://civitai.com/api/download/models/{model_id}"
 HF_HOSTS = ("huggingface.co", "www.huggingface.co", "hf.co")
+BLOCKED_UPLOAD_EXTS = {".py", ".pyc", ".sh", ".bat", ".cmd", ".ps1", ".exe", ".dll", ".so", ".msi"}
 SOURCES = {
     "civitai": {
         "denied": "Civitai refused the download (check the API token or the model's access rules)",
@@ -299,6 +300,61 @@ def setup_model_routes():
         except OSError as e:
             return _err(f"Could not move: {e.strerror}")
         return web.json_response({"ok": True, "path": new_path})
+
+    @routes.post("/model_manager/upload")
+    async def mm_upload(request):
+        saved: List[str] = []
+        errors: List[str] = []
+        folder = ""
+        try:
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "dir":
+                    folder = (await part.text()).strip()
+                    continue
+                if part.name != "file" or not part.filename:
+                    continue
+                tmp: Optional[str] = None
+                try:
+                    target_dir = _resolve(folder)
+                    if not os.path.isdir(target_dir):
+                        raise ModelManagerError("Folder not found")
+                    filename = _safe_filename(part.filename)
+                    if os.path.splitext(filename)[1].lower() in BLOCKED_UPLOAD_EXTS:
+                        raise ModelManagerError(f"{filename}: scripts and executables can't be uploaded here")
+                    dest = os.path.join(target_dir, filename)
+                    if os.path.exists(dest):
+                        raise ModelManagerError(f"{filename} already exists in that folder")
+                    tmp = os.path.join(target_dir, f".upload_{uuid.uuid4().hex}.part")
+                    with open(tmp, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk(1024 * 1024)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    os.replace(tmp, dest)
+                    tmp = None
+                    saved.append(_rel(dest))
+                except ModelManagerError as e:
+                    errors.append(str(e))
+                    while await part.read_chunk():
+                        pass
+                except OSError as e:
+                    errors.append(f"Disk error: {e.strerror or type(e).__name__}")
+                finally:
+                    if tmp and os.path.exists(tmp):
+                        try:
+                            os.remove(tmp)
+                        except OSError:
+                            pass
+        except Exception:
+            return _err("Upload failed")
+        if not saved and errors:
+            return _err(errors[0])
+        return web.json_response({"saved": saved, "errors": errors})
 
     @routes.post("/model_manager/rename")
     async def mm_rename(request):

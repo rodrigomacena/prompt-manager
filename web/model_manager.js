@@ -68,6 +68,11 @@ const CSS_TEXT = `
 .mm-token-label { width: 90px; flex-shrink: 0; color: var(--descrip-text, #999); font-size: 11px; }
 .mm-hf-form { display: flex; align-items: center; gap: 6px; }
 .mm-hf-form .mm-input { flex: 1; min-width: 0; }
+.mm-root.mm-dragging::after {
+    content: "Drop files to upload to the open folder";
+    position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+    background: rgba(59,111,216,0.28); border: 2px dashed #3b8bff; border-radius: 6px; font-size: 14px; color: #fff; pointer-events: none;
+}
 .mm-hf-target { font-size: 10px; color: var(--descrip-text, #999); }
 .mm-token-row .mm-input { flex: 1; }
 .mm-dl-list { display: flex; flex-direction: column; gap: 4px; max-height: 90px; overflow: auto; }
@@ -147,6 +152,7 @@ function setupModelManagerWidget(node) {
         expanded: new Set([""]),
         cache: new Map(),
         allFolders: [""],
+        uploads: [],
         hasToken: false,
         hasHfToken: false,
         tokenOpen: false,
@@ -163,8 +169,16 @@ function setupModelManagerWidget(node) {
     header.appendChild(el("div", "mm-title", "Model Manager"));
     const tokenBtn = el("button", "mm-btn", "🔑 Tokens");
     const refreshBtn = el("button", "mm-btn", "⟳ Refresh");
+    const uploadBtn = el("button", "mm-btn mm-primary", "⬆ Upload here");
+    uploadBtn.title = "Upload files from your computer into the open folder (or drag them onto this node)";
+    const uploadInput = el("input");
+    uploadInput.type = "file";
+    uploadInput.multiple = true;
+    uploadInput.style.display = "none";
+    header.appendChild(uploadBtn);
     header.appendChild(tokenBtn);
     header.appendChild(refreshBtn);
+    header.appendChild(uploadInput);
     root.appendChild(header);
 
     const tokenRow = el("div", "mm-token-panel");
@@ -488,10 +502,11 @@ function setupModelManagerWidget(node) {
 
     function renderDownloads() {
         dlList.innerHTML = "";
-        for (const d of state.downloads) {
+        const items = [...state.uploads, ...state.downloads];
+        for (const d of items) {
             const item = el("div", "mm-dl-item");
             const top = el("div", "mm-dl-top");
-            const name = el("span", "mm-dl-name", (d.source === "huggingface" ? "🤗 " : "") + (d.filename || `Model ${d.model_id}`));
+            const name = el("span", "mm-dl-name", (d.source === "huggingface" ? "🤗 " : d.source === "upload" ? "⬆ " : "") + (d.filename || `Model ${d.model_id}`));
             name.title = `-> models/${d.folder}`;
             top.appendChild(name);
             const active = d.status === "starting" || d.status === "downloading";
@@ -508,7 +523,10 @@ function setupModelManagerWidget(node) {
             top.appendChild(metaEl);
             if (active) {
                 const cancel = el("button", "mm-btn", "Cancel");
-                cancel.addEventListener("click", () => postJson("/model_manager/download/cancel", { id: d.id }).then(pollDownloads));
+                cancel.addEventListener("click", () => {
+                    if (d.source === "upload") d._xhr.abort();
+                    else postJson("/model_manager/download/cancel", { id: d.id }).then(pollDownloads);
+                });
                 top.appendChild(cancel);
             }
             item.appendChild(top);
@@ -529,10 +547,11 @@ function setupModelManagerWidget(node) {
             item.appendChild(bar);
             dlList.appendChild(item);
         }
-        if (state.downloads.some((d) => d.status === "done" || d.status === "error" || d.status === "cancelled")) {
+        if (items.some((d) => d.status === "done" || d.status === "error" || d.status === "cancelled")) {
             const clear = el("button", "mm-btn", "Clear finished");
             clear.style.alignSelf = "flex-start";
             clear.addEventListener("click", async () => {
+                state.uploads = state.uploads.filter((u) => u.status === "downloading");
                 await postJson("/model_manager/download/clear", {});
                 await pollDownloads();
             });
@@ -592,6 +611,136 @@ function setupModelManagerWidget(node) {
     });
     idInput.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") dlBtn.click();
+    });
+
+    let renderTimer = null;
+    function scheduleDownloadsRender() {
+        if (renderTimer) return;
+        renderTimer = setTimeout(() => {
+            renderTimer = null;
+            renderDownloads();
+        }, 250);
+    }
+
+    function uploadOne(file, folder) {
+        const item = {
+            id: "up" + Math.random().toString(16).slice(2),
+            source: "upload",
+            filename: file.name,
+            folder,
+            status: "downloading",
+            downloaded: 0,
+            total: file.size,
+            speed: 0,
+            error: "",
+            _xhr: null,
+        };
+        state.uploads.unshift(item);
+        renderDownloads();
+        return new Promise((resolve) => {
+            const xhr = new XMLHttpRequest();
+            item._xhr = xhr;
+            const started = performance.now();
+            const finish = (status, error) => {
+                item.status = status;
+                item.error = error || "";
+                if (status === "done") item.downloaded = file.size;
+                renderDownloads();
+                resolve();
+            };
+            xhr.open("POST", api.apiURL("/model_manager/upload"));
+            if (api.user) xhr.setRequestHeader("Comfy-User", api.user);
+            xhr.upload.onprogress = (ev) => {
+                item.downloaded = Math.min(ev.loaded, file.size);
+                item.speed = ev.loaded / Math.max((performance.now() - started) / 1000, 0.001);
+                scheduleDownloadsRender();
+            };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) return finish("done");
+                let message = `Upload failed (${xhr.status})`;
+                try {
+                    message = JSON.parse(xhr.responseText).error || message;
+                } catch (e) {
+                    // keep the generic message
+                }
+                finish("error", message);
+            };
+            xhr.onerror = () => finish("error", "Network error during upload");
+            xhr.onabort = () => finish("cancelled");
+            const form = new FormData();
+            form.append("dir", folder);
+            form.append("file", file, file.name);
+            xhr.send(form);
+        });
+    }
+
+    async function uploadFiles(fileList) {
+        const files = [...fileList].filter((f) => f.size >= 0 && f.name);
+        if (!files.length) return;
+        const folder = state.currentPath;
+        let existing = new Set();
+        try {
+            existing = new Set((await loadDir(folder, true)).files.map((f) => f.name));
+        } catch (e) {
+            existing = new Set();
+        }
+        for (const file of files) {
+            if (existing.has(file.name)) {
+                state.uploads.unshift({
+                    id: "up" + Math.random().toString(16).slice(2),
+                    source: "upload",
+                    filename: file.name,
+                    folder,
+                    status: "error",
+                    downloaded: 0,
+                    total: file.size,
+                    speed: 0,
+                    error: `${file.name} already exists in that folder`,
+                    _xhr: null,
+                });
+                renderDownloads();
+                continue;
+            }
+            await uploadOne(file, folder);
+            state.cache.delete(folder);
+            if (state.currentPath === folder) await renderAll();
+        }
+    }
+
+    uploadBtn.addEventListener("click", () => uploadInput.click());
+    uploadInput.addEventListener("change", () => {
+        const files = [...uploadInput.files];
+        uploadInput.value = "";
+        if (files.length) uploadFiles(files);
+    });
+    const hasFiles = (ev) => ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
+    let dragDepth = 0;
+    root.addEventListener("dragenter", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        dragDepth++;
+        root.classList.add("mm-dragging");
+    });
+    root.addEventListener("dragover", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.dataTransfer.dropEffect = "copy";
+    });
+    root.addEventListener("dragleave", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.stopPropagation();
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (!dragDepth) root.classList.remove("mm-dragging");
+    });
+    root.addEventListener("drop", (ev) => {
+        if (!hasFiles(ev)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        dragDepth = 0;
+        root.classList.remove("mm-dragging");
+        uploadFiles(ev.dataTransfer.files);
     });
 
     hfBtn.addEventListener("click", async () => {
