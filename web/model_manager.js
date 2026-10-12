@@ -34,7 +34,21 @@ const CSS_TEXT = `
 }
 .mm-tree { width: 220px; flex-shrink: 0; padding: 4px; }
 .mm-files { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.mm-crumbbar { display: flex; align-items: center; border-bottom: 1px solid var(--border-color, #3a3a3a); }
+.mm-crumbbar .mm-crumb { flex: 1; border-bottom: none; }
+.mm-star { margin: 0 6px; padding: 1px 7px; font-size: 14px; line-height: 1.2; }
+.mm-star.mm-on { color: #f2c94c; border-color: #f2c94c; }
 .mm-crumb { padding: 6px 8px; border-bottom: 1px solid var(--border-color, #3a3a3a); color: var(--descrip-text, #999); word-break: break-all; }
+.mm-fav { padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border-color, #3a3a3a); }
+.mm-fav-title { font-size: 10px; letter-spacing: 0.04em; color: var(--descrip-text, #888); padding: 3px 6px; }
+.mm-fav-row { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
+.mm-fav-row:hover { background: rgba(255,255,255,0.06); }
+.mm-fav-row.mm-active { background: rgba(80,140,255,0.25); }
+.mm-fav-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.mm-fav-x { opacity: 0; cursor: pointer; color: var(--descrip-text, #999); padding: 0 3px; }
+.mm-fav-row:hover .mm-fav-x { opacity: 1; }
+.mm-fav-x:hover { color: #ff7b72; }
+.mm-fav-empty { padding: 2px 8px; font-size: 10px; font-style: italic; color: var(--descrip-text, #888); }
 .mm-list { flex: 1; overflow: auto; }
 .mm-tree-row, .mm-row {
     display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 3px; cursor: pointer; white-space: nowrap;
@@ -157,6 +171,7 @@ function setupModelManagerWidget(node) {
         cache: new Map(),
         allFolders: [""],
         uploads: [],
+        favorites: [],
         picked: new Set(),
         pickedFolder: "",
         hasToken: false,
@@ -222,7 +237,11 @@ function setupModelManagerWidget(node) {
     fileBar.appendChild(zipBtn);
     fileBar.appendChild(zipStatus);
     fileBar.style.display = "none";
-    filesPane.appendChild(crumb);
+    const crumbBar = el("div", "mm-crumbbar");
+    const starBtn = el("button", "mm-btn mm-star", "☆");
+    crumbBar.appendChild(crumb);
+    crumbBar.appendChild(starBtn);
+    filesPane.appendChild(crumbBar);
     filesPane.appendChild(fileBar);
     filesPane.appendChild(list);
     main.appendChild(treePane);
@@ -341,8 +360,61 @@ function setupModelManagerWidget(node) {
         }
     }
 
+    function folderLabelOf(path) {
+        return path ? path : "models (root)";
+    }
+
+    async function saveFavorites(next) {
+        try {
+            const data = await postJson("/model_manager/favorites", { favorites: next });
+            state.favorites = data.favorites;
+        } catch (e) {
+            dlErr.textContent = e.message;
+            dlErr.style.display = "";
+        }
+        updateStar();
+        await renderTree();
+    }
+
+    function updateStar() {
+        const on = state.favorites.includes(state.currentPath);
+        starBtn.textContent = on ? "★" : "☆";
+        starBtn.classList.toggle("mm-on", on);
+        starBtn.title = on ? "Remove this folder from favorites" : "Add this folder to favorites";
+    }
+
+    function renderFavorites() {
+        const box = el("div", "mm-fav");
+        box.appendChild(el("div", "mm-fav-title", "★ FAVORITES"));
+        if (!state.favorites.length) {
+            box.appendChild(el("div", "mm-fav-empty", "Press ☆ above the file list to pin the open folder here."));
+        }
+        for (const path of state.favorites) {
+            const row = el("div", "mm-fav-row" + (path === state.currentPath ? " mm-active" : ""));
+            const name = el("span", "mm-fav-name", "📁 " + folderLabelOf(path));
+            name.title = "models/" + path;
+            const x = el("span", "mm-fav-x", "✕");
+            x.title = "Remove from favorites";
+            x.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                saveFavorites(state.favorites.filter((f) => f !== path));
+            });
+            row.appendChild(name);
+            row.appendChild(x);
+            row.addEventListener("click", () => openFolder(path));
+            box.appendChild(row);
+        }
+        return box;
+    }
+
+    starBtn.addEventListener("click", () => {
+        const path = state.currentPath;
+        saveFavorites(state.favorites.includes(path) ? state.favorites.filter((f) => f !== path) : [...state.favorites, path]);
+    });
+
     async function renderTree() {
         const frag = document.createDocumentFragment();
+        frag.appendChild(renderFavorites());
         const holder = el("div");
         frag.appendChild(holder);
         await renderTreeNode(holder, "", "models", 0);
@@ -351,6 +423,7 @@ function setupModelManagerWidget(node) {
     }
 
     async function renderFiles() {
+        updateStar();
         crumb.textContent = "models" + (state.currentPath ? "/" + state.currentPath : "");
         hfTarget.textContent = "Civitai and Hugging Face downloads are saved in the open folder: models" + (state.currentPath ? "/" + state.currentPath : "");
         list.innerHTML = "";
@@ -892,6 +965,11 @@ function setupModelManagerWidget(node) {
             console.error("ModelManager: failed to load settings", e);
         }
         await loadFolders();
+        try {
+            state.favorites = (await apiJson("/model_manager/favorites")).favorites;
+        } catch (e) {
+            console.error("ModelManager: failed to load favorites", e);
+        }
         if (state.allFolders.includes(DEFAULT_FOLDER)) {
             state.currentPath = DEFAULT_FOLDER;
             state.expanded.add(DEFAULT_FOLDER);

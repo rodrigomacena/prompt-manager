@@ -231,6 +231,7 @@ def save_settings(
     model: Optional[str] = None,
     civitai_token: Optional[str] = None,
     hf_token: Optional[str] = None,
+    mm_favorites: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     with _lock:
         db = _read_raw()
@@ -243,5 +244,7 @@ def save_settings(
             settings["civitai_token"] = civitai_token.strip()
         if hf_token is not None:
             settings["hf_token"] = hf_token.strip()
+        if mm_favorites is not None:
+            settings["mm_favorites"] = list(mm_favorites)
         _write_raw(db)
         return settings

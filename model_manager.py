@@ -489,6 +489,35 @@ def setup_model_routes():
             return _err(f"Could not rename: {e.strerror}")
         return web.json_response({"ok": True, "path": new_path})
 
+    @routes.get("/model_manager/favorites")
+    async def mm_get_favorites(request):
+        stored = storage.get_settings().get("mm_favorites", [])
+        existing = []
+        for rel in stored if isinstance(stored, list) else []:
+            try:
+                if os.path.isdir(_resolve(str(rel))):
+                    existing.append(_rel(_resolve(str(rel))))
+            except ModelManagerError:
+                continue
+        return web.json_response({"favorites": existing})
+
+    @routes.post("/model_manager/favorites")
+    async def mm_save_favorites(request):
+        data = await _json(request)
+        raw = (data or {}).get("favorites")
+        if not isinstance(raw, list):
+            return _err("Invalid favorites")
+        clean: List[str] = []
+        try:
+            for rel in raw[:50]:
+                full = _resolve(str(rel))
+                if os.path.isdir(full) and _rel(full) not in clean:
+                    clean.append(_rel(full))
+        except ModelManagerError as e:
+            return _err(str(e))
+        storage.save_settings(mm_favorites=clean)
+        return web.json_response({"favorites": clean})
+
     @routes.get("/model_manager/settings")
     async def mm_get_settings(request):
         settings = storage.get_settings()
