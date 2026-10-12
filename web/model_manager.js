@@ -61,8 +61,7 @@ const CSS_TEXT = `
 }
 .mm-download { border: 1px solid var(--border-color, #3a3a3a); border-radius: 4px; background: rgba(0,0,0,0.15); padding: 6px; display: flex; flex-direction: column; gap: 6px; }
 .mm-dl-form { display: flex; align-items: center; gap: 6px; }
-.mm-dl-form .mm-input { width: 150px; }
-.mm-dl-form .mm-select { flex: 1; min-width: 0; }
+.mm-dl-form .mm-input { flex: 1; min-width: 0; }
 .mm-token-panel { display: flex; flex-direction: column; gap: 4px; }
 .mm-token-row { display: flex; align-items: center; gap: 6px; }
 .mm-token-label { width: 90px; flex-shrink: 0; color: var(--descrip-text, #999); font-size: 11px; }
@@ -165,7 +164,6 @@ function setupModelManagerWidget(node) {
         listError: "",
         dlError: "",
         downloads: [],
-        dlFolder: "",
         modelId: "",
     };
 
@@ -236,10 +234,8 @@ function setupModelManagerWidget(node) {
     idInput.type = "text";
     idInput.placeholder = "Civitai model ID";
     idInput.inputMode = "numeric";
-    const folderSelect = el("select", "mm-select");
     const dlBtn = el("button", "mm-btn mm-primary", "⬇ Download");
     dlForm.appendChild(idInput);
-    dlForm.appendChild(folderSelect);
     dlForm.appendChild(dlBtn);
     const hfForm = el("div", "mm-hf-form");
     const hfInput = el("input", "mm-input");
@@ -302,8 +298,6 @@ function setupModelManagerWidget(node) {
         } catch (e) {
             console.error("ModelManager: failed to load folders", e);
         }
-        if (!state.allFolders.includes(state.dlFolder)) state.dlFolder = "";
-        folderOptions(folderSelect, state.dlFolder);
     }
 
     async function openFolder(path) {
@@ -357,7 +351,7 @@ function setupModelManagerWidget(node) {
 
     async function renderFiles() {
         crumb.textContent = "models" + (state.currentPath ? "/" + state.currentPath : "");
-        hfTarget.textContent = "Hugging Face downloads are saved in the open folder: models" + (state.currentPath ? "/" + state.currentPath : "");
+        hfTarget.textContent = "Civitai and Hugging Face downloads are saved in the open folder: models" + (state.currentPath ? "/" + state.currentPath : "");
         list.innerHTML = "";
         let data;
         try {
@@ -679,8 +673,7 @@ function setupModelManagerWidget(node) {
         }
         dlBtn.disabled = true;
         try {
-            await postJson("/model_manager/download", { model_id: modelId, folder: folderSelect.value });
-            state.dlFolder = folderSelect.value;
+            await postJson("/model_manager/download", { model_id: modelId, folder: state.currentPath });
             idInput.value = "";
             await pollDownloads();
         } catch (e) {
