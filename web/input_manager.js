@@ -62,6 +62,9 @@ const CSS_TEXT = `
 .im-cell:hover { border-color: rgba(255,255,255,0.35); }
 .im-cell.im-selected { border-color: #3b8bff; }
 .im-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.im-root.im-blur .im-cell img,
+.im-root.im-blur .im-preview-box img { filter: blur(20px) saturate(0.8); }
+.im-btn.im-active { background: #3b6fd8; border-color: #3b6fd8; color: #fff; }
 .im-cell .im-cell-name {
     position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 9px;
     background: rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -251,7 +254,10 @@ function setupInputManagerWidget(node) {
     fileInput.multiple = true;
     fileInput.style.display = "none";
     const refreshBtn = el("button", "im-btn", "⟳ Refresh");
+    const blurBtn = el("button", "im-btn", "🙈 Blur");
+    blurBtn.title = "Blur the thumbnails and the preview (double-click a picture to see it clearly)";
     header.appendChild(uploadBtn);
+    header.appendChild(blurBtn);
     header.appendChild(refreshBtn);
     header.appendChild(fileInput);
     root.appendChild(header);
@@ -937,6 +943,18 @@ function setupInputManagerWidget(node) {
         if (state.selected && !state.selected.startsWith(state.dir ? state.dir + "/" : "")) select("");
         await loadImages();
     });
+    function applyBlur() {
+        const on = node.properties.blur === true;
+        root.classList.toggle("im-blur", on);
+        blurBtn.classList.toggle("im-active", on);
+        blurBtn.textContent = on ? "👁 Show" : "🙈 Blur";
+    }
+    blurBtn.addEventListener("click", () => {
+        node.properties.blur = node.properties.blur !== true;
+        applyBlur();
+    });
+    applyBlur();
+
     slider.addEventListener("input", () => {
         state.thumbSize = Number(slider.value);
         node.properties.thumbSize = state.thumbSize;
@@ -974,6 +992,7 @@ function setupInputManagerWidget(node) {
         brushSlider.value = String(state.brush);
         previewKey = "";
         state.thumbSize = Number(node.properties.thumbSize) || DEFAULT_THUMB;
+        applyBlur();
         if (SORT_DEFAULT_ORDER[node.properties.sortBy]) state.sortBy = node.properties.sortBy;
         if (node.properties.sortOrder === "asc" || node.properties.sortOrder === "desc") state.sortOrder = node.properties.sortOrder;
         updateSortUi();
