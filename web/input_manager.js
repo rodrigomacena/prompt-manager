@@ -82,6 +82,8 @@ const CSS_TEXT = `
 .im-tools input[type=range] { flex: 1; min-width: 60px; }
 .im-tools .im-layer-row { display: flex; gap: 4px; width: 100%; }
 .im-tools .im-layer-row .im-btn { flex: 1; }
+.im-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.im-actions .im-confirm { font-size: 11px; color: var(--input-text, #ddd); }
 .im-tools-hint { font-size: 10px; color: var(--descrip-text, #888); }
 .im-preview-info { font-size: 11px; color: var(--descrip-text, #aaa); word-break: break-all; }
 .im-root.im-dragging::after {
@@ -288,6 +290,8 @@ function setupInputManagerWidget(node) {
     tools.appendChild(clearMaskBtn);
     tools.appendChild(toolsHint);
     preview.appendChild(tools);
+    const actions = el("div", "im-actions");
+    preview.appendChild(actions);
     preview.appendChild(previewInfo);
     main.appendChild(gallery);
     main.appendChild(preview);
@@ -562,11 +566,13 @@ function setupInputManagerWidget(node) {
     }
 
     function updateSelectionClasses() {
+        confirmingDelete = false;
+        renderActions();
         for (const cell of grid.children) {
             const index = state.selectedList.indexOf(cell.dataset.path);
             const picked = index >= 0;
             cell.classList.toggle("im-selected", picked);
-            cell.classList.toggle("im-picked", picked && state.multi && state.selectedList.length >= 2);
+            cell.classList.toggle("im-picked", picked && state.selectedList.length >= 2);
             const badge = cell.querySelector(".im-badge");
             if (badge) badge.textContent = picked ? String(index + 1) : "";
         }
@@ -578,10 +584,14 @@ function setupInputManagerWidget(node) {
         state.selectedList = list;
         state.selected = primary;
         imageWidget.value = primary;
-        imagesWidget.value = JSON.stringify(list.length >= 2 ? list : []);
+        syncImagesWidget();
         directoryWidget.value = state.dir;
         updateSelectionClasses();
         renderPreview();
+    }
+
+    function syncImagesWidget() {
+        imagesWidget.value = JSON.stringify(state.multi && state.selectedList.length >= 2 ? state.selectedList : []);
     }
 
     function select(path) {
@@ -589,7 +599,7 @@ function setupInputManagerWidget(node) {
     }
 
     function onCellClick(ev, path) {
-        const additive = state.multi && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.pointerType === "touch");
+        const additive = ev.ctrlKey || ev.metaKey || ev.shiftKey || (state.multi && ev.pointerType === "touch");
         if (!additive) {
             select(path);
             return;
@@ -612,7 +622,7 @@ function setupInputManagerWidget(node) {
         for (const info of state.images) {
             const path = joinPath(state.dir, info.name);
             const index = state.selectedList.indexOf(path);
-            const cell = el("div", "im-cell" + (index >= 0 ? " im-selected" : "") + (index >= 0 && isJoined() ? " im-picked" : ""));
+            const cell = el("div", "im-cell" + (index >= 0 ? " im-selected" : "") + (index >= 0 && state.selectedList.length >= 2 ? " im-picked" : ""));
             cell.dataset.path = path;
             const img = document.createElement("img");
             img.loading = "lazy";
@@ -735,6 +745,56 @@ function setupInputManagerWidget(node) {
         closeBtn.focus();
     }
 
+    let confirmingDelete = false;
+
+    function renderActions() {
+        actions.innerHTML = "";
+        const count = state.selectedList.length;
+        if (!count) return;
+        if (!confirmingDelete) {
+            const del = el("button", "im-btn im-danger", count > 1 ? `🗑 Delete ${count} selected` : "🗑 Delete selected");
+            del.title = "Delete the selected picture(s) from disk";
+            del.addEventListener("click", () => {
+                confirmingDelete = true;
+                renderActions();
+            });
+            actions.appendChild(del);
+            if (count > 1) actions.appendChild(el("span", "im-confirm", "Ctrl+click adds or removes pictures."));
+            return;
+        }
+        actions.appendChild(el("span", "im-confirm", `Delete ${count} picture${count > 1 ? "s" : ""} permanently?`));
+        const yes = el("button", "im-btn im-danger", "Yes, delete");
+        const no = el("button", "im-btn", "Cancel");
+        no.addEventListener("click", () => {
+            confirmingDelete = false;
+            renderActions();
+        });
+        yes.addEventListener("click", async () => {
+            yes.disabled = true;
+            no.disabled = true;
+            const paths = [...state.selectedList];
+            const failed = [];
+            for (const path of paths) {
+                try {
+                    await apiJson("/input_manager/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ path }),
+                    });
+                } catch (e) {
+                    failed.push(path);
+                }
+            }
+            confirmingDelete = false;
+            setSelection(failed);
+            await loadImages();
+            const done = paths.length - failed.length;
+            setStatus(failed.length ? `Deleted ${done}; ${failed.length} could not be deleted.` : `Deleted ${done} picture${done > 1 ? "s" : ""}.`, failed.length > 0);
+        });
+        actions.appendChild(yes);
+        actions.appendChild(no);
+    }
+
     let statusTimer = null;
     function setStatus(text, isError) {
         status.textContent = text;
@@ -838,11 +898,9 @@ function setupInputManagerWidget(node) {
         state.multi = multiBox.checked;
         node.properties.multi = state.multi;
         updateMultiUi();
-        if (!state.multi && state.selectedList.length > 1) select(state.selected);
-        else {
-            updateSelectionClasses();
-            renderPreview(true);
-        }
+        syncImagesWidget();
+        updateSelectionClasses();
+        renderPreview(true);
     });
     layoutSelect.addEventListener("change", () => {
         state.layout = layoutSelect.value;
