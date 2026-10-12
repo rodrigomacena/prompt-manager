@@ -19,7 +19,7 @@ Custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) to save you
 
 A second node in this package, **Model Manager** (category `utils/models`), manages the files under ComfyUI's `models` folder. It has no inputs or outputs; it is just a panel on the canvas:
 
-- **Explorer**: a folder tree on the left and the selected folder's subfolders and files (with sizes) on the right.
+- **Explorer**: a folder tree on the left and the selected folder's subfolders and files (with sizes) on the right. It opens inside the `loras` folder by default (the models root if there is none).
 - **Rename / Move / Delete**: each file has a Rename button (type the new name; the extension is kept out of the initial selection), a Move button (pick a destination folder) and a Delete button (asks for confirmation). Everything is confined to the models folder, and renaming or moving never overwrites an existing file.
 - **Upload from your computer**: the ⬆ Upload here button (or dragging files onto the node) sends files straight into the folder currently open in the explorer. Large files are streamed to disk with a progress bar, speed and a Cancel button; an unfinished upload leaves nothing behind. Existing files are never overwritten, and scripts/executables (`.py`, `.sh`, `.bat`, `.exe`, `.dll`...) are refused.
 - **Download to your computer**: tick the files you want in the open folder (or **Select all**) and click **⬇ Download zip**. The server streams a zip of them straight to your browser (stored, not recompressed, so even multi-GB models start immediately and use no extra disk space or memory); the browser's download manager shows the progress. One file gives `<name>.zip`, several give `<folder>_<n>_files.zip`.

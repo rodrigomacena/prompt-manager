@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const NODE_NAME = "ModelManager";
+const DEFAULT_FOLDER = "loras";
 
 const CSS_TEXT = `
 .mm-root {
@@ -891,6 +892,10 @@ function setupModelManagerWidget(node) {
             console.error("ModelManager: failed to load settings", e);
         }
         await loadFolders();
+        if (state.allFolders.includes(DEFAULT_FOLDER)) {
+            state.currentPath = DEFAULT_FOLDER;
+            state.expanded.add(DEFAULT_FOLDER);
+        }
         await renderAll();
         await pollDownloads();
     })();
