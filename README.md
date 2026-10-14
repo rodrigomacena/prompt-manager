@@ -57,7 +57,9 @@ A fourth node, **Image Monitor** (category `utils/image`), sends every image it 
 
 Widgets: `channel` (a name, so several monitors can each follow their own node), `max_side` (downscale the longest side before sending, 0 = original) and `keep` (how many images each channel remembers, 1-500). The viewer shows the newest picture full-screen over black, with a history strip: ←/→ browse (which pauses **Live**; a "New image" badge appears and one click returns to the newest), Space toggles Live, **F** fullscreen, **M** fit/fill, **H** history, **B** blur, scroll/pinch to zoom and drag to move. The controls and the cursor hide themselves when idle, and the choices are remembered per channel. It reconnects by itself if the server restarts.
 
-Images are stored under `user/ImageMonitor/<channel>/` and anyone who can reach the URL can see them, so don't expose the viewer of a public server without protecting the server itself.
+**Password.** Type one in the node's `password` widget (empty = open). Anyone who opens the monitor address of that channel then sees only a lock screen until they enter it; a wrong guess is refused, 8 failures in 5 minutes block that address for a while, and the unlock lasts 30 days on that browser (a 🔒 button in the viewer locks it again). The password applies every time the node runs, or immediately with the **🔒 Apply password now** button; changing it signs every viewer out. The server keeps only a salted hash, and the pictures, the list and the clear action all require the unlock (the live signal sent over the websocket carries no file names). Honest limits: the password is also stored in plain text in the workflow file (don't share workflows that contain it), the node shows it in plain text, and this protects the *monitor address* only. Someone who can already use your ComfyUI itself can queue prompts, so a public ComfyUI still needs its own protection (a password or a tunnel in front of it).
+
+Images are stored under `user/ImageMonitor/<channel>/`.
 
 ## Installation
 

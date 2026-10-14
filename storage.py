@@ -281,6 +281,8 @@ def save_settings(
     hf_token: Optional[str] = None,
     mm_favorites: Optional[List[str]] = None,
     im_favorites: Optional[List[str]] = None,
+    monitor_passwords: Optional[Dict[str, Any]] = None,
+    monitor_secret: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _lock:
         db = _read_raw()
@@ -297,5 +299,9 @@ def save_settings(
             settings["mm_favorites"] = list(mm_favorites)
         if im_favorites is not None:
             settings["im_favorites"] = list(im_favorites)
+        if monitor_passwords is not None:
+            settings["monitor_passwords"] = dict(monitor_passwords)
+        if monitor_secret is not None:
+            settings["monitor_secret"] = monitor_secret
         _write_raw(db)
         return settings

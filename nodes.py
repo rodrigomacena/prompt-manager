@@ -181,15 +181,16 @@ class ImageMonitorNode:
                 "channel": ("STRING", {"default": "main", "multiline": False}),
                 "max_side": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 64}),
                 "keep": ("INT", {"default": 50, "min": 1, "max": 500}),
+                "password": ("STRING", {"default": "", "multiline": False}),
             },
         }
 
-    def send(self, images, channel="main", max_side=0, keep=50):
-        push_images(channel, images, max_side, keep)
+    def send(self, images, channel="main", max_side=0, keep=50, password=""):
+        push_images(channel, images, max_side, keep, password)
         return ()
 
     @classmethod
-    def IS_CHANGED(cls, images, channel="main", max_side=0, keep=50):
+    def IS_CHANGED(cls, images, channel="main", max_side=0, keep=50, password=""):
         return float("nan")
 
 

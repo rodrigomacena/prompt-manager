@@ -35,6 +35,17 @@
   body.idle #hud, body.idle #strip { opacity: 0; }
   #help { position: fixed; right: 14px; bottom: 96px; padding: 10px 14px; border-radius: 8px; background: rgba(20,20,20,0.9); font-size: 12px; line-height: 1.7; display: none; }
   #help.show { display: block; }
+  #lock { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: #000; z-index: 20; }
+  #lock.show { display: flex; }
+  #lockbox { width: min(360px, 90vw); display: flex; flex-direction: column; gap: 12px; text-align: center; }
+  #lockbox .icon { font-size: 34px; }
+  #lockbox b { font-size: 18px; font-weight: 600; }
+  #lockbox span.sub { color: #888; font-size: 13px; }
+  #pw { background: #151515; border: 1px solid #444; border-radius: 8px; color: #eee; padding: 11px 14px; font-size: 15px; text-align: center; }
+  #pw:focus { outline: none; border-color: #3b8bff; }
+  #unlock { background: #3b6fd8; border: none; border-radius: 8px; color: #fff; padding: 11px; font-size: 15px; cursor: pointer; }
+  #unlock:disabled { opacity: 0.6; cursor: default; }
+  #lockerr { color: #ff7b72; font-size: 13px; min-height: 18px; }
   kbd { background: #2a2a2a; border: 1px solid #444; border-radius: 4px; padding: 0 5px; font-size: 11px; }
 </style>
 </head>
@@ -50,9 +61,20 @@
   <button id="fillBtn" title="Fit or fill the screen (M)">Fit</button>
   <button id="stripBtn" title="Show or hide the history (H)">History</button>
   <button id="fsBtn" title="Fullscreen (F)">⛶</button>
+  <button id="lockBtn" title="Lock this window again" style="display:none">🔒</button>
   <button id="helpBtn" title="Shortcuts (?)">?</button>
 </div>
 <div id="newbadge">New image ↓</div>
+<div id="lock">
+  <form id="lockbox" autocomplete="off">
+    <div class="icon">🔒</div>
+    <b id="lockTitle">This monitor is protected</b>
+    <span class="sub">Enter the password to see the images.</span>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus>
+    <button id="unlock" type="submit">Unlock</button>
+    <div id="lockerr"></div>
+  </form>
+</div>
 <div id="strip"></div>
 <div id="help">
   <kbd>←</kbd> <kbd>→</kbd> previous / next &nbsp; <kbd>Home</kbd> <kbd>End</kbd> first / newest<br>
@@ -197,8 +219,43 @@
     if (follow) { show(items.length - 1); } else { index = Math.min(index, items.length - 1); }
     rebuildStrip();
   }
+  var locked = false;
+  function showLock(message) {
+    locked = true;
+    items = []; index = -1; img.hidden = true;
+    strip.innerHTML = "";
+    $("lock").classList.add("show");
+    $("lockerr").textContent = message || "";
+    $("counter").textContent = "0 / 0";
+    setTimeout(function () { $("pw").focus(); }, 50);
+  }
+  function hideLock() { locked = false; $("lock").classList.remove("show"); $("lockerr").textContent = ""; $("pw").value = ""; }
+  $("lockbox").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var btn = $("unlock");
+    btn.disabled = true;
+    fetch(url("auth"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel: channel, password: $("pw").value }) })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { $("lockerr").textContent = (res.data && res.data.error) || "Could not unlock"; $("pw").select(); return; }
+        hideLock();
+        loadAll();
+      })
+      .catch(function () { btn.disabled = false; $("lockerr").textContent = "Connection problem, try again"; });
+  });
+  $("lockBtn").addEventListener("click", function () {
+    fetch(url("logout"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel: channel }) })
+      .then(function () { showLock(""); });
+  });
   function loadAll() {
-    return fetch(url("list")).then(function (r) { return r.json(); }).then(function (data) {
+    return fetch(url("list")).then(function (r) {
+      if (r.status === 401) { showLock(locked ? $("lockerr").textContent : ""); return null; }
+      return r.json();
+    }).then(function (data) {
+      if (!data) return 0;
+      if (locked) hideLock();
+      $("lockBtn").style.display = data.protected ? "" : "none";
       var before = items.length;
       if (!items.length) {
         items = data.items || [];
@@ -226,12 +283,12 @@
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (!msg || msg.type !== "image_monitor.update" || !msg.data || msg.data.channel !== channel) return;
       if (msg.data.cleared) { items = []; index = -1; img.hidden = true; $("empty").style.display = "flex"; rebuildStrip(); return; }
-      addItems(msg.data.images || []);
+      loadAll();
     };
     socket.onclose = function () { setDot("off"); setTimeout(connect, retry); retry = Math.min(retry * 1.7, 10000); };
     socket.onerror = function () { try { socket.close(); } catch (e) { /* already closed */ } };
   }
-  setInterval(function () { if (document.visibilityState === "visible") loadAll(); }, 4000);
+  setInterval(function () { if (document.visibilityState === "visible" && !locked) loadAll(); }, 4000);
 
   // ---- controls
   function step(delta) {
@@ -252,6 +309,7 @@
   $("newbadge").addEventListener("click", function () { follow = true; show(items.length - 1); });
   document.addEventListener("keydown", function (ev) {
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (locked || (ev.target && /^(input|textarea)$/i.test(ev.target.tagName || ""))) return;
     var k = ev.key;
     if (k === "ArrowLeft") step(-1);
     else if (k === "ArrowRight") step(1);
