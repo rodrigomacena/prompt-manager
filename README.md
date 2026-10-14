@@ -47,6 +47,18 @@ A third node, **Input Manager** (category `utils/image`), is an image gallery th
 - **Zoom**: in the enlarged view, scroll (or pinch on a touch screen / trackpad) to zoom in on the point under the cursor, drag to move around the zoomed picture, and double-click to jump between fit and a close-up. The controls under the picture have − / + , **Fit** and **1:1** (actual pixels), with the current percentage; the keyboard shortcuts are `+`, `-`, `0` (fit) and `1` (1:1). Clicking the empty area around the picture closes it; Esc too.
 - The chosen folder, image and thumbnail size are saved with the workflow.
 
+## Image Monitor node
+
+A fourth node, **Image Monitor** (category `utils/image`), sends every image it receives to an always-open viewer window, so you can keep the results on a second monitor without dragging anything:
+
+1. Connect any `IMAGE` output (for example the one that feeds Save Image) to **Image Monitor**.
+2. Click **🖥 Open monitor window** on the node, or open `http://<your-server>/image_monitor/viewer?channel=main` in a browser on the other screen (F11 for fullscreen).
+3. Run the workflow: the window swaps to the new picture by itself. The node always runs, even when the upstream result is cached.
+
+Widgets: `channel` (a name, so several monitors can each follow their own node), `max_side` (downscale the longest side before sending, 0 = original) and `keep` (how many images each channel remembers, 1-500). The viewer shows the newest picture full-screen over black, with a history strip: ←/→ browse (which pauses **Live**; a "New image" badge appears and one click returns to the newest), Space toggles Live, **F** fullscreen, **M** fit/fill, **H** history, **B** blur, scroll/pinch to zoom and drag to move. The controls and the cursor hide themselves when idle, and the choices are remembered per channel. It reconnects by itself if the server restarts.
+
+Images are stored under `user/ImageMonitor/<channel>/` and anyone who can reach the URL can see them, so don't expose the viewer of a public server without protecting the server itself.
+
 ## Installation
 
 1. Copy (or clone) this folder into `ComfyUI/custom_nodes/`:

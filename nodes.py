@@ -2,6 +2,7 @@ import os
 import random
 
 from . import storage
+from .image_monitor import push_images
 from .input_manager import (
     InputManagerError,
     load_image_tensor,
@@ -166,14 +167,42 @@ class InputManagerNode:
         return True
 
 
+class ImageMonitorNode:
+    CATEGORY = "utils/image"
+    RETURN_TYPES = ()
+    FUNCTION = "send"
+    OUTPUT_NODE = True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "channel": ("STRING", {"default": "main", "multiline": False}),
+                "max_side": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 64}),
+                "keep": ("INT", {"default": 50, "min": 1, "max": 500}),
+            },
+        }
+
+    def send(self, images, channel="main", max_side=0, keep=50):
+        push_images(channel, images, max_side, keep)
+        return ()
+
+    @classmethod
+    def IS_CHANGED(cls, images, channel="main", max_side=0, keep=50):
+        return float("nan")
+
+
 NODE_CLASS_MAPPINGS = {
     "PromptManager": PromptManagerNode,
     "ModelManager": ModelManagerNode,
     "InputManager": InputManagerNode,
+    "ImageMonitor": ImageMonitorNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PromptManager": "Prompt Manager",
     "ModelManager": "Model Manager",
     "InputManager": "Input Manager",
+    "ImageMonitor": "Image Monitor",
 }
