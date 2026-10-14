@@ -19,6 +19,8 @@ from server import PromptServer
 
 import folder_paths
 
+from . import storage
+
 BASE_DIR = os.path.normpath(os.path.abspath(folder_paths.base_path))
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 SKIP_DIRS = {"models", "custom_nodes", "__pycache__", "node_modules", "venv", "site-packages"}
@@ -108,17 +110,37 @@ def _natural_key(name: str):
     return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", name.lower())]
 
 
+def favorite_paths() -> set:
+    stored = storage.get_settings().get("im_favorites", [])
+    return set(stored) if isinstance(stored, list) else set()
+
+
+def set_favorites(paths: List[str], favorite: bool) -> int:
+    current = [p for p in storage.get_settings().get("im_favorites", []) if isinstance(p, str)]
+    if favorite:
+        current.extend(p for p in paths if p not in current)
+    else:
+        current = [p for p in current if p not in set(paths)]
+    storage.save_settings(im_favorites=current)
+    return len(current)
+
+
 def list_images(rel_dir: str, sort: str = "date", order: str = "") -> Dict[str, Any]:
     full = resolve(rel_dir)
     if not os.path.isdir(full):
         raise InputManagerError("Folder not found")
+    favorites = favorite_paths()
+    folder = rel_of(full)
     images: List[Dict[str, Any]] = []
     with os.scandir(full) as it:
         for entry in it:
             try:
                 if entry.is_file() and os.path.splitext(entry.name)[1].lower() in IMAGE_EXTS:
                     st = entry.stat()
-                    images.append({"name": entry.name, "size": st.st_size, "mtime": st.st_mtime})
+                    rel = f"{folder}/{entry.name}" if folder else entry.name
+                    images.append(
+                        {"name": entry.name, "size": st.st_size, "mtime": st.st_mtime, "favorite": rel in favorites}
+                    )
             except OSError:
                 continue
     if sort not in ("date", "name", "size"):
@@ -131,6 +153,7 @@ def list_images(rel_dir: str, sort: str = "date", order: str = "") -> Dict[str, 
         "size": lambda i: (i["size"], _natural_key(i["name"])),
     }
     images.sort(key=keys[sort], reverse=(order == "desc"))
+    images.sort(key=lambda i: not i["favorite"])
     truncated = len(images) > MAX_IMAGES
     return {"dir": rel_of(full), "images": images[:MAX_IMAGES], "total": len(images), "truncated": truncated}
 
@@ -245,6 +268,22 @@ def setup_input_routes():
             )
         except InputManagerError as e:
             return _err(str(e), 404)
+
+    @routes.post("/input_manager/favorite")
+    async def im_favorite(request):
+        try:
+            data = await request.json()
+        except Exception:
+            return _err("Invalid JSON")
+        raw = (data or {}).get("paths")
+        if not isinstance(raw, list) or not raw:
+            return _err("Select at least one picture")
+        try:
+            paths = [rel_of(resolve_image(str(p))) for p in raw[:500]]
+        except InputManagerError as e:
+            return _err(str(e))
+        total = set_favorites(paths, bool((data or {}).get("favorite", True)))
+        return web.json_response({"ok": True, "total": total})
 
     @routes.get("/input_manager/thumb")
     async def im_thumb(request):
@@ -409,6 +448,7 @@ def setup_input_routes():
         try:
             src = resolve_image((data or {}).get("path", ""))
             os.remove(src)
+            set_favorites([rel_of(src)], False)
         except InputManagerError as e:
             return _err(str(e))
         except OSError as e:

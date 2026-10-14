@@ -280,6 +280,7 @@ def save_settings(
     civitai_token: Optional[str] = None,
     hf_token: Optional[str] = None,
     mm_favorites: Optional[List[str]] = None,
+    im_favorites: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     with _lock:
         db = _read_raw()
@@ -294,5 +295,7 @@ def save_settings(
             settings["hf_token"] = hf_token.strip()
         if mm_favorites is not None:
             settings["mm_favorites"] = list(mm_favorites)
+        if im_favorites is not None:
+            settings["im_favorites"] = list(im_favorites)
         _write_raw(db)
         return settings

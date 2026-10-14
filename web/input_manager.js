@@ -64,6 +64,19 @@ const CSS_TEXT = `
 .im-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .im-root.im-blur .im-cell img,
 .im-root.im-blur .im-preview-box img { filter: blur(20px) saturate(0.8); }
+.im-star {
+    position: absolute; top: 4px; right: 4px; z-index: 2; width: 24px; height: 24px; border: none; border-radius: 12px;
+    background: rgba(0,0,0,0.55); color: #fff; font-size: 14px; line-height: 24px; text-align: center; padding: 0; cursor: pointer;
+    opacity: 0; transition: none;
+}
+.im-cell:hover .im-star { opacity: 1; }
+.im-cell.im-fav .im-star { opacity: 1; color: #f2c94c; }
+.im-star:hover { background: rgba(0,0,0,0.8); }
+.im-cell.im-fav { box-shadow: 0 0 0 1px rgba(242,201,76,0.55); }
+.im-group-title {
+    grid-column: 1 / -1; font-size: 10px; letter-spacing: 0.05em; color: var(--descrip-text, #999);
+    padding: 2px 2px 0; text-transform: uppercase;
+}
 .im-btn.im-active { background: #3b6fd8; border-color: #3b6fd8; color: #fff; }
 .im-cell .im-cell-name {
     position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 9px;
@@ -625,10 +638,20 @@ function setupInputManagerWidget(node) {
             grid.appendChild(el("div", "im-empty", "No images in this folder."));
             return;
         }
+        const hasFavorites = state.images.some((i) => i.favorite);
+        const hasOthers = state.images.some((i) => !i.favorite);
+        let lastGroup = null;
         for (const info of state.images) {
+            if (hasFavorites && hasOthers && lastGroup !== info.favorite) {
+                grid.appendChild(el("div", "im-group-title", info.favorite ? "★ Favorites" : "Others"));
+            }
+            lastGroup = info.favorite;
             const path = joinPath(state.dir, info.name);
             const index = state.selectedList.indexOf(path);
-            const cell = el("div", "im-cell" + (index >= 0 ? " im-selected" : "") + (index >= 0 && state.selectedList.length >= 2 ? " im-picked" : ""));
+            const cell = el(
+                "div",
+                "im-cell" + (info.favorite ? " im-fav" : "") + (index >= 0 ? " im-selected" : "") + (index >= 0 && state.selectedList.length >= 2 ? " im-picked" : "")
+            );
             cell.dataset.path = path;
             const img = document.createElement("img");
             img.loading = "lazy";
@@ -638,6 +661,14 @@ function setupInputManagerWidget(node) {
             cell.appendChild(img);
             cell.appendChild(el("div", "im-cell-name", info.name));
             cell.appendChild(el("div", "im-badge", index >= 0 ? String(index + 1) : ""));
+            const star = el("button", "im-star", info.favorite ? "★" : "☆");
+            star.title = info.favorite ? "Remove from favorites" : "Add to favorites (favorites always come first)";
+            star.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                setFavorite([path], !info.favorite);
+            });
+            star.addEventListener("dblclick", (ev) => ev.stopPropagation());
+            cell.appendChild(star);
             cell.title = info.name;
             cell.addEventListener("click", (ev) => onCellClick(ev, path));
             cell.addEventListener("dblclick", () => {
@@ -667,6 +698,7 @@ function setupInputManagerWidget(node) {
         }
         renderGrid();
         renderPreview();
+        renderActions();
     }
 
     async function loadDirs() {
@@ -753,11 +785,30 @@ function setupInputManagerWidget(node) {
 
     let confirmingDelete = false;
 
+    async function setFavorite(paths, favorite) {
+        try {
+            await apiJson("/input_manager/favorite", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paths, favorite }),
+            });
+        } catch (e) {
+            setStatus(e.message, true);
+            return;
+        }
+        await loadImages();
+    }
+
     function renderActions() {
         actions.innerHTML = "";
         const count = state.selectedList.length;
         if (!count) return;
         if (!confirmingDelete) {
+            const allFavorite = state.selectedList.every((p) => (findImage(p) || {}).favorite);
+            const fav = el("button", "im-btn", allFavorite ? "★ Unfavorite" : "☆ Favorite");
+            fav.title = allFavorite ? "Remove the selected picture(s) from favorites" : "Pin the selected picture(s) to the top";
+            fav.addEventListener("click", () => setFavorite([...state.selectedList], !allFavorite));
+            actions.appendChild(fav);
             const del = el("button", "im-btn im-danger", count > 1 ? `🗑 Delete ${count} selected` : "🗑 Delete selected");
             del.title = "Delete the selected picture(s) from disk";
             del.addEventListener("click", () => {
