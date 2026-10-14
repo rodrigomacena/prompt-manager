@@ -125,24 +125,46 @@ def set_favorites(paths: List[str], favorite: bool) -> int:
     return len(current)
 
 
+def _image_item(full: str, favorite: bool) -> Dict[str, Any]:
+    st = os.stat(full)
+    name = os.path.basename(full)
+    return {
+        "name": name,
+        "path": rel_of(full),
+        "dir": rel_of(os.path.dirname(full)),
+        "size": st.st_size,
+        "mtime": st.st_mtime,
+        "favorite": favorite,
+    }
+
+
 def list_images(rel_dir: str, sort: str = "date", order: str = "") -> Dict[str, Any]:
+    """The open folder's pictures, preceded by every favorite picture from any folder."""
     full = resolve(rel_dir)
     if not os.path.isdir(full):
         raise InputManagerError("Folder not found")
-    favorites = favorite_paths()
-    folder = rel_of(full)
-    images: List[Dict[str, Any]] = []
+    stored = [p for p in storage.get_settings().get("im_favorites", []) if isinstance(p, str)]
+
+    favorites: List[Dict[str, Any]] = []
+    favorite_set = set()
+    for rel in stored:
+        try:
+            favorites.append(_image_item(resolve_image(rel), True))
+            favorite_set.add(rel)
+        except (InputManagerError, OSError):
+            continue  # a favorite whose file is missing is just not shown; it is never dropped from the list
+
+    others: List[Dict[str, Any]] = []
     with os.scandir(full) as it:
         for entry in it:
             try:
                 if entry.is_file() and os.path.splitext(entry.name)[1].lower() in IMAGE_EXTS:
-                    st = entry.stat()
-                    rel = f"{folder}/{entry.name}" if folder else entry.name
-                    images.append(
-                        {"name": entry.name, "size": st.st_size, "mtime": st.st_mtime, "favorite": rel in favorites}
-                    )
+                    item = _image_item(entry.path, False)
+                    if item["path"] not in favorite_set:
+                        others.append(item)
             except OSError:
                 continue
+
     if sort not in ("date", "name", "size"):
         sort = "date"
     if order not in ("asc", "desc"):
@@ -152,10 +174,11 @@ def list_images(rel_dir: str, sort: str = "date", order: str = "") -> Dict[str, 
         "name": lambda i: _natural_key(i["name"]),
         "size": lambda i: (i["size"], _natural_key(i["name"])),
     }
-    images.sort(key=keys[sort], reverse=(order == "desc"))
-    images.sort(key=lambda i: not i["favorite"])
-    truncated = len(images) > MAX_IMAGES
-    return {"dir": rel_of(full), "images": images[:MAX_IMAGES], "total": len(images), "truncated": truncated}
+    favorites.sort(key=keys[sort], reverse=(order == "desc"))
+    others.sort(key=keys[sort], reverse=(order == "desc"))
+    images = favorites + others[: max(0, MAX_IMAGES - len(favorites))]
+    total = len(favorites) + len(others)
+    return {"dir": rel_of(full), "images": images, "total": total, "truncated": total > len(images)}
 
 
 def pil_to_tensors(img):

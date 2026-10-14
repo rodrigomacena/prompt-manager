@@ -333,7 +333,7 @@ function setupInputManagerWidget(node) {
     }
 
     function findImage(path) {
-        return state.images.find((i) => joinPath(state.dir, i.name) === path) || null;
+        return state.images.find((i) => i.path === path) || null;
     }
 
     const layers = {
@@ -646,7 +646,7 @@ function setupInputManagerWidget(node) {
                 grid.appendChild(el("div", "im-group-title", info.favorite ? "★ Favorites" : "Others"));
             }
             lastGroup = info.favorite;
-            const path = joinPath(state.dir, info.name);
+            const path = info.path;
             const index = state.selectedList.indexOf(path);
             const cell = el(
                 "div",
@@ -659,7 +659,8 @@ function setupInputManagerWidget(node) {
             img.alt = info.name;
             img.src = imageUrl("thumb", path, info.mtime);
             cell.appendChild(img);
-            cell.appendChild(el("div", "im-cell-name", info.name));
+            const foreign = info.favorite && info.dir !== state.dir;
+            cell.appendChild(el("div", "im-cell-name", foreign ? `${info.dir || "."}/${info.name}` : info.name));
             cell.appendChild(el("div", "im-badge", index >= 0 ? String(index + 1) : ""));
             const star = el("button", "im-star", info.favorite ? "★" : "☆");
             star.title = info.favorite ? "Remove from favorites" : "Add to favorites (favorites always come first)";
@@ -669,7 +670,7 @@ function setupInputManagerWidget(node) {
             });
             star.addEventListener("dblclick", (ev) => ev.stopPropagation());
             cell.appendChild(star);
-            cell.title = info.name;
+            cell.title = info.path;
             cell.addEventListener("click", (ev) => onCellClick(ev, path));
             cell.addEventListener("dblclick", () => {
                 if (!state.multi) select(path);
@@ -991,7 +992,8 @@ function setupInputManagerWidget(node) {
     dirSelect.addEventListener("change", async () => {
         state.dir = dirSelect.value;
         directoryWidget.value = state.dir;
-        if (state.selected && !state.selected.startsWith(state.dir ? state.dir + "/" : "")) select("");
+        const keep = state.selected && ((findImage(state.selected) || {}).favorite || state.selected.startsWith(state.dir ? state.dir + "/" : ""));
+        if (state.selected && !keep) select("");
         await loadImages();
     });
     function applyBlur() {
