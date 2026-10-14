@@ -254,14 +254,14 @@ function setupModelManagerWidget(node) {
     idInput.type = "text";
     idInput.placeholder = "Civitai model ID";
     idInput.inputMode = "numeric";
-    const dlBtn = el("button", "mm-btn mm-primary", "⬇ Download");
+    const dlBtn = el("button", "mm-btn mm-primary", "CivitAI Download");
     dlForm.appendChild(idInput);
     dlForm.appendChild(dlBtn);
     const hfForm = el("div", "mm-hf-form");
     const hfInput = el("input", "mm-input");
     hfInput.type = "text";
     hfInput.placeholder = "Hugging Face file link (https://huggingface.co/.../resolve/main/model.safetensors)";
-    const hfBtn = el("button", "mm-btn mm-primary", "⬇ Hugging Face");
+    const hfBtn = el("button", "mm-btn mm-primary", "HF Download");
     hfForm.appendChild(hfInput);
     hfForm.appendChild(hfBtn);
     const hfTarget = el("div", "mm-hf-target");
