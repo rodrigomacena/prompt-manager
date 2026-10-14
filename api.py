@@ -93,6 +93,43 @@ def setup_routes():
             return _err("Prompt not found", 404)
         return web.json_response({"ok": True})
 
+    @routes.get("/prompt_manager/prefixes")
+    async def pm_list_prefixes(request):
+        return web.json_response(storage.list_prefixes())
+
+    @routes.post("/prompt_manager/prefixes")
+    async def pm_add_prefix(request):
+        data = await _json_body(request)
+        if data is None:
+            return _err("Invalid JSON")
+        title = (data.get("title") or "").strip()
+        text = (data.get("text") or "").strip()
+        if not title:
+            return _err("A title is required")
+        if not text:
+            return _err("The prefix text is required")
+        return web.json_response(storage.add_prefix(title, text))
+
+    @routes.put("/prompt_manager/prefixes/{prefix_id}")
+    async def pm_update_prefix(request):
+        data = await _json_body(request)
+        if data is None:
+            return _err("Invalid JSON")
+        title = (data.get("title") or "").strip()
+        text = (data.get("text") or "").strip()
+        if not title or not text:
+            return _err("Title and prefix text are required")
+        prefix = storage.update_prefix(request.match_info["prefix_id"], title, text)
+        if prefix is None:
+            return _err("Prefix not found", 404)
+        return web.json_response(prefix)
+
+    @routes.delete("/prompt_manager/prefixes/{prefix_id}")
+    async def pm_delete_prefix(request):
+        if not storage.delete_prefix(request.match_info["prefix_id"]):
+            return _err("Prefix not found", 404)
+        return web.json_response({"ok": True})
+
     @routes.get("/prompt_manager/backup")
     async def pm_backup_all(request):
         payload = storage.backup_all()

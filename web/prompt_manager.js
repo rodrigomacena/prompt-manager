@@ -481,6 +481,58 @@ const CSS_TEXT = `
     flex-direction: column;
     gap: 2px;
 }
+.pm-prefix-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.pm-prefix-btn {
+    background: transparent;
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    color: var(--input-text, #ddd);
+    font-size: 10px;
+    padding: 1px 6px;
+    cursor: pointer;
+}
+.pm-prefix-btn:hover { background: rgba(255,255,255,0.08); }
+.pm-prefix-menu {
+    position: absolute;
+    background: var(--comfy-menu-bg, #2b2b2b);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    width: 260px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 4px;
+}
+.pm-prefix-item { display: flex; align-items: center; gap: 2px; border-radius: 3px; }
+.pm-prefix-item:hover { background: rgba(255,255,255,0.08); }
+.pm-prefix-item .pm-prefix-pick {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--input-text, #ddd);
+    text-align: left;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pm-prefix-item .pm-prefix-mini {
+    background: transparent;
+    border: none;
+    color: var(--descrip-text, #999);
+    cursor: pointer;
+    padding: 2px 5px;
+    font-size: 11px;
+    opacity: 0;
+}
+.pm-prefix-item:hover .pm-prefix-mini { opacity: 1; }
+.pm-prefix-item .pm-prefix-mini:hover { color: var(--input-text, #fff); }
+.pm-prefix-empty { padding: 8px; font-size: 11px; font-style: italic; color: var(--descrip-text, #888); }
 .pm-prefix-label {
     font-size: 10px;
     color: var(--descrip-text, #888);
@@ -713,6 +765,8 @@ function setupPromptManagerWidget(node) {
         enrichInstructions: node.properties.enrichInstructions || "",
         addingPrompt: false,
         settingsMenuOpen: false,
+        prefixMenuOpen: false,
+        prefixes: [],
         settings: { hasApiKey: false, model: DEFAULT_MODEL },
         models: { loading: false, loaded: false, list: [] },
         enrich: { loading: false, error: "", result: "" },
@@ -793,6 +847,147 @@ function setupPromptManagerWidget(node) {
     const pmPrompt = (message, defaultValue) => showModal({ message, defaultValue, mode: "prompt" });
     const pmConfirm = (message) => showModal({ message, mode: "confirm" });
     const pmAlert = (message) => showModal({ message, mode: "alert" });
+
+    async function loadPrefixes() {
+        try {
+            const res = await api.fetchApi("/prompt_manager/prefixes");
+            state.prefixes = await res.json();
+        } catch (e) {
+            console.error("PromptManager: failed to load prefixes", e);
+        }
+    }
+
+    function applyPrefix(text) {
+        state.prefix = text;
+        prefixWidget.value = text;
+        state.prefixMenuOpen = false;
+        render();
+    }
+
+    function showPrefixModal(existing) {
+        const overlay = el("div", "pm-modal-overlay");
+        const box = el("div", "pm-modal-box pm-view-box");
+        overlay.appendChild(box);
+        const close = () => overlay.remove();
+
+        box.appendChild(el("div", "pm-view-title", existing ? "Edit saved prefix" : "New saved prefix"));
+
+        const titleInput = document.createElement("input");
+        titleInput.type = "text";
+        titleInput.className = "pm-editor-title";
+        titleInput.placeholder = "Title";
+        titleInput.value = existing ? existing.title : "";
+        box.appendChild(titleInput);
+
+        const textarea = document.createElement("textarea");
+        textarea.className = "pm-view-textarea";
+        textarea.placeholder = "Prompt (the text inserted before every prompt)";
+        textarea.value = existing ? existing.text : state.prefix;
+        box.appendChild(textarea);
+
+        const err = el("div", "pm-enrich-error");
+        box.appendChild(err);
+
+        const save = async () => {
+            const title = titleInput.value.trim();
+            const text = textarea.value.trim();
+            if (!title) {
+                err.textContent = "Give it a title.";
+                titleInput.focus();
+                return;
+            }
+            if (!text) {
+                err.textContent = "Write the prompt text.";
+                textarea.focus();
+                return;
+            }
+            const res = await api.fetchApi(existing ? `/prompt_manager/prefixes/${existing.id}` : "/prompt_manager/prefixes", {
+                method: existing ? "PUT" : "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title, text }),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                err.textContent = data.error || "Could not save the prefix.";
+                return;
+            }
+            await loadPrefixes();
+            state.prefixMenuOpen = true;
+            render();
+            close();
+        };
+
+        const actions = el("div", "pm-modal-actions");
+        const cancelBtn = el("button", "pm-secondary-btn", "Cancel");
+        cancelBtn.addEventListener("click", close);
+        const saveBtn = el("button", "pm-primary-btn", "Save");
+        saveBtn.addEventListener("click", save);
+        actions.appendChild(cancelBtn);
+        actions.appendChild(saveBtn);
+        box.appendChild(actions);
+
+        titleInput.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                textarea.focus();
+            } else if (ev.key === "Escape") {
+                close();
+            }
+        });
+
+        let overlayMouseDownTarget = null;
+        overlay.addEventListener("mousedown", (ev) => {
+            overlayMouseDownTarget = ev.target;
+        });
+        overlay.addEventListener("click", (ev) => {
+            if (ev.target === overlay && overlayMouseDownTarget === overlay) close();
+        });
+
+        root.appendChild(overlay);
+        setTimeout(() => titleInput.focus(), 0);
+    }
+
+    async function deletePrefix(prefix) {
+        if (!(await pmConfirm(`Delete the saved prefix "${prefix.title}"?`))) return;
+        await api.fetchApi(`/prompt_manager/prefixes/${prefix.id}`, { method: "DELETE" });
+        await loadPrefixes();
+        render();
+    }
+
+    function renderPrefixMenu() {
+        const menu = el("div", "pm-prefix-menu");
+        if (!state.prefixes.length) {
+            menu.appendChild(el("div", "pm-prefix-empty", "No saved prefixes yet."));
+        }
+        for (const prefix of state.prefixes) {
+            const item = el("div", "pm-prefix-item");
+            const pick = el("button", "pm-prefix-pick", prefix.title);
+            pick.title = prefix.text;
+            pick.addEventListener("click", () => applyPrefix(prefix.text));
+            const edit = el("button", "pm-prefix-mini", "✎");
+            edit.title = "Edit";
+            edit.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                showPrefixModal(prefix);
+            });
+            const del = el("button", "pm-prefix-mini", "✕");
+            del.title = "Delete";
+            del.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                deletePrefix(prefix);
+            });
+            item.appendChild(pick);
+            item.appendChild(edit);
+            item.appendChild(del);
+            menu.appendChild(item);
+        }
+        menu.appendChild(el("div", "pm-settings-divider"));
+        const add = el("button", "pm-menu-item", "＋ New prefix");
+        add.style.cssText = "background:transparent;border:none;color:var(--input-text,#ddd);text-align:left;padding:6px 8px;cursor:pointer;font-size:11px;border-radius:3px;";
+        add.addEventListener("click", () => showPrefixModal(null));
+        menu.appendChild(add);
+        return menu;
+    }
 
     function showSavePromptModal(group, text) {
         const overlay = el("div", "pm-modal-overlay");
@@ -1735,6 +1930,8 @@ function setupPromptManagerWidget(node) {
         });
     }
 
+    let prefixBtn = null;
+
     function render() {
         const scrollSnapshot = captureScroll();
         body.innerHTML = "";
@@ -1791,6 +1988,7 @@ function setupPromptManagerWidget(node) {
         settingsBtn.addEventListener("click", (ev) => {
             ev.stopPropagation();
             state.settingsMenuOpen = !state.settingsMenuOpen;
+            state.prefixMenuOpen = false;
             if (state.settingsMenuOpen) loadModels();
             render();
         });
@@ -1807,7 +2005,18 @@ function setupPromptManagerWidget(node) {
         content.appendChild(modeBar);
 
         const prefixRow = el("div", "pm-prefix-row");
-        prefixRow.appendChild(el("div", "pm-prefix-label", "Prefix (always inserted before the prompt)"));
+        const prefixHead = el("div", "pm-prefix-head");
+        prefixHead.appendChild(el("div", "pm-prefix-label", "Prefix (always inserted before the prompt)"));
+        prefixBtn = el("button", "pm-prefix-btn", "📑 Prefix Presets");
+        prefixBtn.title = "Prefix Presets: pick a saved prefix or create a new one";
+        prefixBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            state.prefixMenuOpen = !state.prefixMenuOpen;
+            state.settingsMenuOpen = false;
+            render();
+        });
+        prefixHead.appendChild(prefixBtn);
+        prefixRow.appendChild(prefixHead);
         const prefixInput = document.createElement("textarea");
         prefixInput.className = "pm-prefix-input";
         prefixInput.placeholder = "Ex: masterpiece, best quality";
@@ -1850,6 +2059,16 @@ function setupPromptManagerWidget(node) {
         body.appendChild(main);
         restoreScroll(scrollSnapshot);
 
+        root.querySelectorAll(".pm-prefix-menu").forEach((m) => m.remove());
+        if (state.prefixMenuOpen && prefixBtn) {
+            const menu = renderPrefixMenu();
+            const rootRect = root.getBoundingClientRect();
+            const btnRect = prefixBtn.getBoundingClientRect();
+            menu.style.top = `${btnRect.bottom - rootRect.top + 4}px`;
+            menu.style.right = `${rootRect.right - btnRect.right}px`;
+            root.appendChild(menu);
+        }
+
         root.querySelectorAll(".pm-settings-menu").forEach((m) => m.remove());
         if (state.settingsMenuOpen) {
             const menu = renderSettingsMenu();
@@ -1862,10 +2081,16 @@ function setupPromptManagerWidget(node) {
     }
 
     document.addEventListener("click", (ev) => {
-        if (!root.contains(ev.target) && state.settingsMenuOpen) {
-            state.settingsMenuOpen = false;
-            render();
-        }
+        if (!state.settingsMenuOpen && !state.prefixMenuOpen) return;
+        const keeps = (node) =>
+            node.classList &&
+            (node.classList.contains("pm-settings-menu") ||
+                node.classList.contains("pm-prefix-menu") ||
+                node.classList.contains("pm-modal-overlay"));
+        if (ev.composedPath().some(keeps)) return;
+        state.settingsMenuOpen = false;
+        state.prefixMenuOpen = false;
+        render();
     });
 
     node.addDOMWidget("prompt_manager_ui", "prompt_manager", root, {
@@ -1880,6 +2105,7 @@ function setupPromptManagerWidget(node) {
     loadGroups(state.groupId || undefined);
     loadSettings();
     loadModels();
+    loadPrefixes();
 }
 
 app.registerExtension({

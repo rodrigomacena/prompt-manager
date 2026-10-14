@@ -38,6 +38,7 @@ def _read_raw() -> Dict[str, Any]:
             return {"groups": [], "settings": dict(_DEFAULT_SETTINGS)}
     db.setdefault("groups", [])
     db.setdefault("settings", dict(_DEFAULT_SETTINGS))
+    db.setdefault("prefixes", [])
     return db
 
 
@@ -196,6 +197,42 @@ def _import_group(db: Dict[str, Any], data: Dict[str, Any], overwrite: bool) -> 
     return group
 
 
+def list_prefixes() -> List[Dict[str, Any]]:
+    return load_db()["prefixes"]
+
+
+def add_prefix(title: str, text: str) -> Dict[str, Any]:
+    with _lock:
+        db = _read_raw()
+        prefix = {"id": uuid.uuid4().hex, "title": title, "text": text}
+        db["prefixes"].append(prefix)
+        _write_raw(db)
+        return prefix
+
+
+def update_prefix(prefix_id: str, title: str, text: str) -> Optional[Dict[str, Any]]:
+    with _lock:
+        db = _read_raw()
+        for prefix in db["prefixes"]:
+            if prefix["id"] == prefix_id:
+                prefix["title"] = title
+                prefix["text"] = text
+                _write_raw(db)
+                return prefix
+        return None
+
+
+def delete_prefix(prefix_id: str) -> bool:
+    with _lock:
+        db = _read_raw()
+        before = len(db["prefixes"])
+        db["prefixes"] = [p for p in db["prefixes"] if p["id"] != prefix_id]
+        changed = len(db["prefixes"]) != before
+        if changed:
+            _write_raw(db)
+        return changed
+
+
 def backup_all() -> Dict[str, Any]:
     """Export every group as ``{"groups": [{"name", "prompts": [{"text", "rating"}]}]}``."""
     db = load_db()
@@ -209,7 +246,8 @@ def backup_all() -> Dict[str, Any]:
                 ],
             }
             for g in db["groups"]
-        ]
+        ],
+        "prefixes": [{"title": p["title"], "text": p["text"]} for p in db["prefixes"]],
     }
 
 
@@ -218,6 +256,16 @@ def restore_all(data: Dict[str, Any], overwrite: bool = False) -> List[Dict[str,
     with _lock:
         db = _read_raw()
         groups = [_import_group(db, group_data, overwrite) for group_data in data.get("groups", [])]
+        for item in data.get("prefixes", []) or []:
+            title = str(item.get("title", "")).strip()
+            text = str(item.get("text", "")).strip()
+            if not title or not text:
+                continue
+            existing = next((p for p in db["prefixes"] if p["title"] == title), None)
+            if existing is None:
+                db["prefixes"].append({"id": uuid.uuid4().hex, "title": title, "text": text})
+            elif overwrite:
+                existing["text"] = text
         _write_raw(db)
         return groups
 
