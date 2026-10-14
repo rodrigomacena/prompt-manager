@@ -114,7 +114,20 @@ const CSS_TEXT = `
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px;
     font-family: var(--font-family, sans-serif); color: #eee; font-size: 13px;
 }
-.im-lightbox img { max-width: 94vw; max-height: 78vh; object-fit: contain; border-radius: 4px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); }
+.im-lb-stage {
+    flex: 1 1 auto; width: 100%; min-height: 0; overflow: hidden; position: relative;
+    display: flex; align-items: center; justify-content: center; cursor: zoom-in; touch-action: none;
+}
+.im-lb-stage.im-zoomed { cursor: grab; }
+.im-lb-stage.im-panning { cursor: grabbing; }
+.im-lb-stage img {
+    max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    transform-origin: center center; will-change: transform; user-select: none; -webkit-user-drag: none;
+}
+.im-lb-zoom { display: flex; align-items: center; gap: 6px; }
+.im-lb-zoom .im-btn { min-width: 30px; }
+.im-lb-pct { min-width: 52px; text-align: center; font-size: 12px; color: #ddd; }
+.im-lb-hint { font-size: 10px; color: #999; }
 .im-lightbox-bar { display: flex; align-items: center; gap: 10px; max-width: 94vw; }
 .im-lightbox-name { max-width: 50vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .im-lightbox-err { color: #ff7b72; }
@@ -716,7 +729,26 @@ function setupInputManagerWidget(node) {
         const info = findImage(path);
         const overlay = el("div", "im-lightbox");
         const img = document.createElement("img");
+        img.draggable = false;
         img.src = imageUrl("image", path, info ? info.mtime : 0);
+        const stage = el("div", "im-lb-stage");
+        stage.appendChild(img);
+        const zoomRow = el("div", "im-lb-zoom");
+        const zoomOut = el("button", "im-btn", "−");
+        zoomOut.title = "Zoom out (-)";
+        const pct = el("span", "im-lb-pct", "Fit");
+        const zoomIn = el("button", "im-btn", "+");
+        zoomIn.title = "Zoom in (+)";
+        const fitBtn = el("button", "im-btn", "Fit");
+        fitBtn.title = "Fit to screen (0)";
+        const actualBtn = el("button", "im-btn", "1:1");
+        actualBtn.title = "Actual pixels (1)";
+        zoomRow.appendChild(zoomOut);
+        zoomRow.appendChild(pct);
+        zoomRow.appendChild(zoomIn);
+        zoomRow.appendChild(fitBtn);
+        zoomRow.appendChild(actualBtn);
+        zoomRow.appendChild(el("span", "im-lb-hint", "Scroll or pinch to zoom · drag to move · double-click to toggle"));
         const bar = el("div", "im-lightbox-bar");
         const name = el("div", "im-lightbox-name", path);
         const err = el("div", "im-lightbox-err");
@@ -725,11 +757,133 @@ function setupInputManagerWidget(node) {
         bar.appendChild(name);
         bar.appendChild(delBtn);
         bar.appendChild(closeBtn);
-        overlay.appendChild(img);
+        overlay.appendChild(stage);
+        overlay.appendChild(zoomRow);
         overlay.appendChild(bar);
         overlay.appendChild(err);
 
+        // ---- zoom and pan: scale is relative to the fitted picture, the transform origin is its centre
+        const MAX_SCALE = 32;
+        let scale = 1;
+        let tx = 0;
+        let ty = 0;
+
+        const clampPan = () => {
+            const rect = stage.getBoundingClientRect();
+            const w = img.clientWidth * scale;
+            const h = img.clientHeight * scale;
+            const maxX = w > rect.width ? (w - rect.width) / 2 + 80 : 0;
+            const maxY = h > rect.height ? (h - rect.height) / 2 + 80 : 0;
+            tx = Math.max(-maxX, Math.min(maxX, tx));
+            ty = Math.max(-maxY, Math.min(maxY, ty));
+        };
+        const applyTransform = () => {
+            if (scale <= 1.0001) {
+                scale = 1;
+                tx = 0;
+                ty = 0;
+            }
+            clampPan();
+            img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+            stage.classList.toggle("im-zoomed", scale > 1);
+            const shown = img.naturalWidth ? Math.round(((scale * img.clientWidth) / img.naturalWidth) * 100) : 100;
+            pct.textContent = scale === 1 ? `Fit (${shown}%)` : `${shown}%`;
+        };
+        const zoomAt = (factor, clientX, clientY) => {
+            const rect = stage.getBoundingClientRect();
+            const px = clientX - (rect.left + rect.width / 2);
+            const py = clientY - (rect.top + rect.height / 2);
+            const next = Math.max(1, Math.min(MAX_SCALE, scale * factor));
+            const k = next / scale;
+            tx = px - (px - tx) * k;
+            ty = py - (py - ty) * k;
+            scale = next;
+            applyTransform();
+        };
+        const centre = () => {
+            const rect = stage.getBoundingClientRect();
+            return [rect.left + rect.width / 2, rect.top + rect.height / 2];
+        };
+        const actualScale = () => (img.clientWidth ? Math.max(img.naturalWidth / img.clientWidth, 1) : 1);
+        const toggleZoom = (clientX, clientY) => {
+            if (scale > 1.05) {
+                scale = 1;
+                applyTransform();
+            } else {
+                zoomAt(Math.max(actualScale(), 2.5), clientX, clientY);
+            }
+        };
+
+        zoomIn.addEventListener("click", () => zoomAt(1.4, ...centre()));
+        zoomOut.addEventListener("click", () => zoomAt(1 / 1.4, ...centre()));
+        fitBtn.addEventListener("click", () => {
+            scale = 1;
+            applyTransform();
+        });
+        actualBtn.addEventListener("click", () => {
+            scale = 1;
+            zoomAt(actualScale(), ...centre());
+        });
+        img.addEventListener("load", applyTransform);
+        img.addEventListener("dblclick", (ev) => toggleZoom(ev.clientX, ev.clientY));
+        stage.addEventListener(
+            "wheel",
+            (ev) => {
+                ev.preventDefault();
+                zoomAt(Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.0018)), ev.clientX, ev.clientY);
+            },
+            { passive: false }
+        );
+
+        const pointers = new Map();
+        let dragMoved = 0;
+        let lastPinch = 0;
+        stage.addEventListener("pointerdown", (ev) => {
+            pointers.set(ev.pointerId, [ev.clientX, ev.clientY]);
+            try {
+                stage.setPointerCapture(ev.pointerId);
+            } catch (e) {
+                // capture is only a convenience while dragging
+            }
+            dragMoved = 0;
+            if (pointers.size === 2) {
+                const [a, b] = [...pointers.values()];
+                lastPinch = Math.hypot(a[0] - b[0], a[1] - b[1]);
+            }
+        });
+        stage.addEventListener("pointermove", (ev) => {
+            const before = pointers.get(ev.pointerId);
+            if (!before) return;
+            const dx = ev.clientX - before[0];
+            const dy = ev.clientY - before[1];
+            pointers.set(ev.pointerId, [ev.clientX, ev.clientY]);
+            dragMoved += Math.abs(dx) + Math.abs(dy);
+            if (pointers.size === 2) {
+                const [a, b] = [...pointers.values()];
+                const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+                if (lastPinch > 0) zoomAt(dist / lastPinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+                lastPinch = dist;
+            } else if (scale > 1) {
+                stage.classList.add("im-panning");
+                tx += dx;
+                ty += dy;
+                applyTransform();
+            }
+        });
+        const endPointer = (ev) => {
+            pointers.delete(ev.pointerId);
+            lastPinch = 0;
+            if (!pointers.size) stage.classList.remove("im-panning");
+        };
+        stage.addEventListener("pointerup", endPointer);
+        stage.addEventListener("pointercancel", endPointer);
+        stage.addEventListener("click", (ev) => {
+            if (ev.target === stage && dragMoved < 5) close();
+        });
+        window.addEventListener("resize", applyTransform);
+
         const close = () => {
+            window.removeEventListener("resize", applyTransform);
             document.removeEventListener("keydown", onKey, true);
             overlay.remove();
         };
@@ -737,7 +891,21 @@ function setupInputManagerWidget(node) {
             if (ev.key === "Escape") {
                 ev.stopPropagation();
                 close();
+                return;
             }
+            const inField = ev.target && /^(input|textarea|select)$/i.test(ev.target.tagName || "");
+            if (inField || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+            if (ev.key === "+" || ev.key === "=") zoomAt(1.4, ...centre());
+            else if (ev.key === "-" || ev.key === "_") zoomAt(1 / 1.4, ...centre());
+            else if (ev.key === "0") {
+                scale = 1;
+                applyTransform();
+            } else if (ev.key === "1") {
+                scale = 1;
+                zoomAt(actualScale(), ...centre());
+            } else return;
+            ev.preventDefault();
+            ev.stopPropagation();
         };
         document.addEventListener("keydown", onKey, true);
 
