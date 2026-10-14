@@ -476,6 +476,41 @@ def setup_model_routes():
             await worker
         return resp
 
+    @routes.post("/model_manager/check")
+    async def mm_check(request):
+        data = await _json(request)
+        names = (data or {}).get("names")
+        if not isinstance(names, list):
+            return _err("Invalid names")
+        wanted = [str(n).replace("\\", "/").strip("/") for n in names[:500]]
+
+        by_basename: Dict[str, List[str]] = {}
+        top_folders = []
+        for entry in os.scandir(MODELS_DIR):
+            if entry.is_dir():
+                top_folders.append(entry.name)
+        for root_dir, dirs, files in os.walk(MODELS_DIR):
+            depth = 0 if root_dir == MODELS_DIR else len(os.path.relpath(root_dir, MODELS_DIR).split(os.sep))
+            if depth >= 6:
+                dirs[:] = []
+            for filename in files:
+                rel = os.path.relpath(os.path.join(root_dir, filename), MODELS_DIR).replace("\\", "/")
+                by_basename.setdefault(filename.lower(), []).append(rel)
+
+        results: Dict[str, Any] = {}
+        for name in wanted:
+            parts = name.split("/")
+            if not name or ".." in parts or ":" in parts[0] or os.path.isabs(name):
+                results[name] = {"status": "missing", "paths": []}
+                continue
+            exact = [f"{folder}/{name}" for folder in top_folders if os.path.isfile(os.path.join(MODELS_DIR, folder, *name.split("/")))]
+            if exact:
+                results[name] = {"status": "ok", "paths": exact}
+                continue
+            similar = by_basename.get(os.path.basename(name).lower(), [])
+            results[name] = {"status": "elsewhere" if similar else "missing", "paths": similar[:5]}
+        return web.json_response({"results": results})
+
     @routes.post("/model_manager/rename")
     async def mm_rename(request):
         data = await _json(request)

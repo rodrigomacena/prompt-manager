@@ -109,6 +109,18 @@ const CSS_TEXT = `
 .mm-modal-box { background: var(--comfy-menu-bg, #252525); border: 1px solid var(--border-color, #555); border-radius: 6px; padding: 12px; width: 340px; max-width: 90%; display: flex; flex-direction: column; gap: 8px; }
 .mm-modal-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .mm-modal-box .mm-select { width: 100%; }
+.mm-modal-box.mm-scan-box { width: 560px; max-height: 86%; }
+.mm-scan-summary { color: var(--descrip-text, #aaa); font-size: 11px; }
+.mm-scan-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 60px; }
+.mm-scan-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; }
+.mm-scan-row:hover { background: rgba(255,255,255,0.05); }
+.mm-scan-mark { width: 16px; text-align: center; flex-shrink: 0; font-weight: 700; }
+.mm-scan-mark.mm-ok { color: #3fa35c; }
+.mm-scan-mark.mm-elsewhere { color: #f2c94c; }
+.mm-scan-mark.mm-missing { color: #ff7b72; }
+.mm-scan-info { flex: 1; min-width: 0; }
+.mm-scan-name { word-break: break-all; }
+.mm-scan-sub { color: var(--descrip-text, #999); font-size: 10px; word-break: break-all; }
 .mm-modal-file { word-break: break-all; color: var(--descrip-text, #aaa); font-size: 11px; }
 `;
 
@@ -195,7 +207,10 @@ function setupModelManagerWidget(node) {
     uploadInput.type = "file";
     uploadInput.multiple = true;
     uploadInput.style.display = "none";
+    const scanBtn = el("button", "mm-btn", "🔍 Scan workflow");
+    scanBtn.title = "List the models the open workflow uses and whether each one is installed";
     header.appendChild(uploadBtn);
+    header.appendChild(scanBtn);
     header.appendChild(tokenBtn);
     header.appendChild(refreshBtn);
     header.appendChild(uploadInput);
@@ -929,6 +944,120 @@ function setupModelManagerWidget(node) {
     }
     civitaiToken.save.addEventListener("click", () => saveToken(civitaiToken, "civitai_token"));
     hfToken.save.addEventListener("click", () => saveToken(hfToken, "hf_token"));
+
+    const MODEL_FILE = /\.(safetensors|sft|ckpt|pt|pth|bin|gguf|onnx|pkl)$/i;
+
+    function collectModelRefs(graph, refs, seen) {
+        if (!graph || seen.has(graph)) return;
+        seen.add(graph);
+        for (const n of graph._nodes || graph.nodes || []) {
+            if (n.type === NODE_NAME) continue;
+            for (const w of n.widgets || []) {
+                const value = w.value;
+                if (typeof value !== "string" || value.length > 300 || value.includes("\n") || !MODEL_FILE.test(value)) continue;
+                const name = value.replace(/\\/g, "/");
+                if (!refs.has(name)) refs.set(name, []);
+                refs.get(name).push({ node: n.title || n.type, type: n.type, widget: w.name, mode: n.mode });
+            }
+            if (n.subgraph) collectModelRefs(n.subgraph, refs, seen);
+        }
+    }
+
+    async function copyText(text) {
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (e) {
+            // fall through to the legacy path
+        }
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        let ok = false;
+        try {
+            ok = document.execCommand("copy");
+        } catch (e) {
+            ok = false;
+        }
+        area.remove();
+        return ok;
+    }
+
+    async function scanWorkflow() {
+        const refs = new Map();
+        collectModelRefs(app.graph, refs, new Set());
+        const names = [...refs.keys()];
+        let results = {};
+        if (names.length) {
+            try {
+                results = (await postJson("/model_manager/check", { names })).results;
+            } catch (e) {
+                dlErr.textContent = e.message;
+                dlErr.style.display = "";
+                return;
+            }
+        }
+        showModal((box, close) => {
+            box.classList.add("mm-scan-box");
+            box.appendChild(el("div", null, "Models used by this workflow"));
+            if (!names.length) {
+                box.appendChild(el("div", "mm-scan-summary", "No model files found in the open workflow."));
+            } else {
+                const missing = names.filter((n) => results[n] && results[n].status !== "ok");
+                box.appendChild(
+                    el("div", "mm-scan-summary", `${names.length - missing.length} of ${names.length} found in the models folder${missing.length ? ` · ${missing.length} not found` : ""}`)
+                );
+                const list = el("div", "mm-scan-list");
+                const order = { missing: 0, elsewhere: 1, ok: 2 };
+                names.sort((a, b) => order[(results[a] || {}).status || "missing"] - order[(results[b] || {}).status || "missing"] || a.localeCompare(b));
+                for (const name of names) {
+                    const r = results[name] || { status: "missing", paths: [] };
+                    const row = el("div", "mm-scan-row");
+                    const mark = el("span", "mm-scan-mark mm-" + r.status, r.status === "ok" ? "✓" : r.status === "elsewhere" ? "!" : "✗");
+                    mark.title = r.status === "ok" ? "Installed" : r.status === "elsewhere" ? "A file with this name exists, but not at this path" : "Not found";
+                    const info = el("div", "mm-scan-info");
+                    info.appendChild(el("div", "mm-scan-name", name));
+                    const users = refs.get(name).map((u) => u.node + (u.mode === 2 || u.mode === 4 ? " (muted/bypassed)" : ""));
+                    const sub = [...new Set(users)].join(", ");
+                    const where = r.status === "ok" ? "models/" + r.paths[0] : r.status === "elsewhere" ? "same file name at models/" + r.paths[0] : "";
+                    info.appendChild(el("div", "mm-scan-sub", where ? `${sub} · ${where}` : sub));
+                    const copy = el("button", "mm-btn", "Copy name");
+                    copy.addEventListener("click", async () => {
+                        const ok = await copyText(name);
+                        copy.textContent = ok ? "Copied!" : "Copy failed";
+                        setTimeout(() => (copy.textContent = "Copy name"), 1300);
+                    });
+                    row.appendChild(mark);
+                    row.appendChild(info);
+                    row.appendChild(copy);
+                    list.appendChild(row);
+                }
+                box.appendChild(list);
+            }
+            const actions = el("div", "mm-modal-actions");
+            if (names.length) {
+                const copyMissing = el("button", "mm-btn", "Copy missing names");
+                const missing = names.filter((n) => results[n] && results[n].status === "missing");
+                copyMissing.disabled = !missing.length;
+                copyMissing.addEventListener("click", async () => {
+                    const ok = await copyText(missing.join("\n"));
+                    copyMissing.textContent = ok ? "Copied!" : "Copy failed";
+                    setTimeout(() => (copyMissing.textContent = "Copy missing names"), 1300);
+                });
+                actions.appendChild(copyMissing);
+            }
+            const closeBtn = el("button", "mm-btn mm-primary", "Close");
+            closeBtn.addEventListener("click", close);
+            actions.appendChild(closeBtn);
+            box.appendChild(actions);
+        });
+    }
+    scanBtn.addEventListener("click", scanWorkflow);
 
     function updateTokenUi() {
         tokenBtn.textContent = "🔑 Tokens" + (state.hasToken || state.hasHfToken ? " ✓" : "");
