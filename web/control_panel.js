@@ -88,8 +88,20 @@ function el(tag, className, text) {
 const TEXT_TYPES = new Set(["text", "customtext", "string"]);
 const NUMBER_TYPES = new Set(["number", "slider", "knob"]);
 
-function widgetKind(w) {
+// The Prompt Manager hides its own widgets behind a custom UI; these three are meant to be edited from outside.
+const PM_EXPOSED = { prompt_text: ["text", "Prompt"], prefix: ["text", "Prefix"], mode: ["combo", "Mode"] };
+
+function pmExposed(node, w) {
+    return !!(node && node._pmRefreshFromWidgets && w && PM_EXPOSED[w.name]);
+}
+
+function displayName(node, w) {
+    return pmExposed(node, w) ? PM_EXPOSED[w.name][1] : w.label || w.name;
+}
+
+function widgetKind(w, node) {
     if (!w) return null;
+    if (pmExposed(node, w)) return PM_EXPOSED[w.name][0];
     if (w.type === "combo") return "combo";
     if (w.type === "toggle") return "toggle";
     if (w.type === "button") return "button";
@@ -98,7 +110,8 @@ function widgetKind(w) {
     return null;
 }
 
-function isHidden(w) {
+function isHidden(w, node) {
+    if (pmExposed(node, w)) return false;
     return !!(w.hidden || (w.options && w.options.hidden) || w.type === "converted-widget");
 }
 
@@ -108,7 +121,7 @@ function isLinked(node, w) {
 }
 
 function usableWidgets(node) {
-    return (node.widgets || []).filter((w) => w.name && widgetKind(w) && !isHidden(w));
+    return (node.widgets || []).filter((w) => w.name && widgetKind(w, node) && !isHidden(w, node));
 }
 
 function findWidget(item) {
@@ -148,6 +161,11 @@ function formatNumber(v, precision) {
 
 function pushValue(node, widget, value) {
     widget.value = value;
+    if (node._pmRefreshFromWidgets) {
+        // the Prompt Manager keeps its own copy of these values; let it re-read them (debounced while typing)
+        clearTimeout(node._cpRefreshTimer);
+        node._cpRefreshTimer = setTimeout(() => node._pmRefreshFromWidgets(), 350);
+    }
     try {
         if (widget.callback) widget.callback(value, app.canvas, node, [0, 0], null);
     } catch (e) {
@@ -198,7 +216,7 @@ function setupControlPanel(node) {
     // ---------------------------------------------------------------- rows
 
     function buildControl(item, node2, widget, row) {
-        const kind = widgetKind(widget);
+        const kind = widgetKind(widget, node2);
         const linked = isLinked(node2, widget);
         const box = el("div", "cp-ctl");
         let sync = () => {};
@@ -320,7 +338,7 @@ function setupControlPanel(node) {
                 if (document.activeElement !== ta && ta.value !== String(widget.value ?? "")) ta.value = String(widget.value ?? "");
             };
         } else if (kind === "button") {
-            const b = el("button", "cp-btn cp-grow", widget.label || widget.name);
+            const b = el("button", "cp-btn cp-grow", displayName(node2, widget));
             b.addEventListener("click", () => {
                 try {
                     if (widget.callback) widget.callback(widget.value, app.canvas, node2, [0, 0], null);
@@ -359,7 +377,7 @@ function setupControlPanel(node) {
             const row = el("div", "cp-row");
             row.head = el("div", "cp-head");
             row.appendChild(row.head);
-            const defaultLabel = widget ? widget.label || widget.name : item.w;
+            const defaultLabel = widget ? displayName(src, widget) : item.w;
             if (state.edit) {
                 const input = el("input", "cp-label-input");
                 input.value = item.label || "";
@@ -485,7 +503,7 @@ function setupControlPanel(node) {
                 r.classList.toggle("cp-added", isAdded(src.id, w.name));
                 r.classList.toggle("cp-linked", linked);
                 r.appendChild(el("div", "cp-check", isAdded(src.id, w.name) ? "✓" : ""));
-                r.appendChild(el("div", "cp-pick-name", w.label || w.name));
+                r.appendChild(el("div", "cp-pick-name", displayName(src, w)));
                 r.appendChild(el("div", "cp-pick-val", linked ? "connected" : previewValue(w)));
                 r.addEventListener("click", () => {
                     if (linked) return;

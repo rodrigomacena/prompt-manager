@@ -70,6 +70,7 @@ A fifth node, **Control Panel** (category `utils/ui`), gathers just the fields y
 - Each control is bound to the real field: changing it in the panel changes the node, and changing the node updates the panel (a seed that randomizes after each run is followed too). Numbers get ➖/➕ buttons and a big slider when the range is reasonable, seeds get a 🎲 button, lists get ◀ ▶ arrows plus a native picker, toggles are big switches and prompts are large text boxes.
 - **✎ Edit** lets you rename a control, move it ↑/↓ or remove it. The selection and names are saved with the workflow.
 - **▶ Queue** at the top runs the workflow, and a thumbnail of the last generated image shows at the bottom (tap it to open it).
+- **Prompt Manager** nodes expose their **Prompt**, **Prefix** and **Mode** fields too. Typing in the panel updates the Prompt Manager (the text shows as "Not saved yet" there, like typing in it directly) and changes made in the Prompt Manager show up in the panel. Choosing a saved group/prompt is still done in the Prompt Manager itself.
 - Fields connected to another node's output are shown as read-only, and a control whose node was deleted is flagged as missing instead of vanishing.
 
 ## Installation
