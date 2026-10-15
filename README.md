@@ -64,7 +64,7 @@ Images are stored under `user/ImageMonitor/<channel>/`.
 
 ## Control Panel node
 
-A fifth node, **Control Panel** (category ), gathers just the fields you care about from other nodes into one touch-friendly panel, handy on an iPad where the canvas is awkward to work on. It is frontend-only (no Python logic).
+A fifth node, **Control Panel** (category `utils/ui`), gathers just the fields you care about from other nodes into one touch-friendly panel, handy on an iPad where the canvas is awkward to work on. It is frontend-only (no Python logic).
 
 - **＋ Add control** opens a picker: choose a node, then tick the fields (seed, steps, cfg, sampler, prompt text, LoRA, strength...) you want to change from the panel. Tap a field again to remove it.
 - Each control is bound to the real field: changing it in the panel changes the node, and changing the node updates the panel (a seed that randomizes after each run is followed too). Numbers get ➖/➕ buttons and a big slider when the range is reasonable, seeds get a 🎲 button, lists get ◀ ▶ arrows plus a native picker, toggles are big switches and prompts are large text boxes.
