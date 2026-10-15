@@ -84,22 +84,6 @@ class ModelManagerNode:
         return ()
 
 
-class ControlPanelNode:
-    """UI-only node: gathers chosen widgets from other nodes into one touch-friendly panel."""
-
-    CATEGORY = "utils/ui"
-    RETURN_TYPES = ()
-    FUNCTION = "run"
-    OUTPUT_NODE = False
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {"required": {}}
-
-    def run(self):
-        return ()
-
-
 class InputManagerNode:
     CATEGORY = "utils/image"
     RETURN_TYPES = ("IMAGE", "MASK", "STRING", "INT", "INT", "IMAGE")
@@ -215,7 +199,6 @@ NODE_CLASS_MAPPINGS = {
     "ModelManager": ModelManagerNode,
     "InputManager": InputManagerNode,
     "ImageMonitor": ImageMonitorNode,
-    "ControlPanel": ControlPanelNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -223,5 +206,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ModelManager": "Model Manager",
     "InputManager": "Input Manager",
     "ImageMonitor": "Image Monitor",
-    "ControlPanel": "Control Panel",
 }
