@@ -77,6 +77,16 @@ const CSS_TEXT = `
     grid-column: 1 / -1; font-size: 10px; letter-spacing: 0.05em; color: var(--descrip-text, #999);
     padding: 2px 2px 0; text-transform: uppercase;
 }
+.im-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.im-lockbtn { padding: 1px 8px; font-size: 13px; line-height: 1.3; }
+.im-lockbtn.im-on { background: #c9811a; border-color: #c9811a; color: #fff; }
+.im-cell .im-lock-mark {
+    position: absolute; right: 4px; bottom: 4px; z-index: 2; width: 22px; height: 22px; border-radius: 11px;
+    background: #c9811a; color: #fff; font-size: 12px; line-height: 22px; text-align: center; display: none;
+}
+.im-cell.im-locked .im-lock-mark { display: block; }
+.im-root.im-lockon .im-cell:not(.im-locked) { cursor: not-allowed; }
+.im-root.im-lockon .im-cell.im-locked { border-color: #c9811a; }
 .im-btn.im-active { background: #3b6fd8; border-color: #3b6fd8; color: #fff; }
 .im-cell .im-cell-name {
     position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 9px;
@@ -211,6 +221,7 @@ function setupInputManagerWidget(node) {
         sortBy: node.properties.sortBy,
         sortOrder: node.properties.sortOrder,
         multi: node.properties.multi === true,
+        locked: node.properties.locked === true,
         selectedList: [],
         layout: layoutWidget.value === "vertical" ? "vertical" : "horizontal",
         layer: "mask",
@@ -295,7 +306,11 @@ function setupInputManagerWidget(node) {
     gallery.appendChild(grid);
     gallery.appendChild(note);
     const preview = el("div", "im-pane im-preview");
-    preview.appendChild(el("div", "im-preview-title", "Preview"));
+    const previewHead = el("div", "im-preview-head");
+    previewHead.appendChild(el("div", "im-preview-title", "Preview"));
+    const lockBtn = el("button", "im-btn im-lockbtn", "🔓");
+    previewHead.appendChild(lockBtn);
+    preview.appendChild(previewHead);
     const previewBox = el("div", "im-preview-box");
     const previewInfo = el("div", "im-preview-info");
     preview.appendChild(previewBox);
@@ -610,7 +625,45 @@ function setupInputManagerWidget(node) {
         }
     }
 
-    function setSelection(list) {
+    function notifyLocked() {
+        const name = state.selected ? state.selected.split("/").pop() : "";
+        setStatus(`Locked on ${name}. Unlock 🔒 to change the picture.`, true);
+    }
+
+    function updateLockUi() {
+        const on = state.locked && !!state.selected;
+        lockBtn.textContent = on ? "🔒" : "🔓";
+        lockBtn.classList.toggle("im-on", on);
+        lockBtn.disabled = !state.selected && !state.locked;
+        lockBtn.title = on
+            ? "Locked: this picture is always the output, whatever you click. Click to unlock."
+            : state.selected
+              ? "Lock this picture as the output so a stray click can't change it"
+              : "Select a picture first, then lock it";
+        root.classList.toggle("im-lockon", on);
+        for (const cell of grid.children) cell.classList.toggle("im-locked", on && state.selectedList.includes(cell.dataset.path));
+    }
+
+    function dropLock() {
+        state.locked = false;
+        node.properties.locked = false;
+        updateLockUi();
+    }
+
+    lockBtn.addEventListener("click", () => {
+        if (state.locked) dropLock();
+        else if (state.selected) {
+            state.locked = true;
+            node.properties.locked = true;
+            updateLockUi();
+        }
+    });
+
+    function setSelection(list, force) {
+        if (state.locked && !force) {
+            notifyLocked();
+            return;
+        }
         const primary = list[0] || "";
         if (primary !== state.selected || list.length >= 2) discardAllLayers();
         state.selectedList = list;
@@ -620,6 +673,7 @@ function setupInputManagerWidget(node) {
         directoryWidget.value = state.dir;
         updateSelectionClasses();
         renderPreview();
+        updateLockUi();
     }
 
     function syncImagesWidget() {
@@ -675,6 +729,7 @@ function setupInputManagerWidget(node) {
             const foreign = info.favorite && info.dir !== state.dir;
             cell.appendChild(el("div", "im-cell-name", foreign ? `${info.dir || "."}/${info.name}` : info.name));
             cell.appendChild(el("div", "im-badge", index >= 0 ? String(index + 1) : ""));
+            cell.appendChild(el("div", "im-lock-mark", "🔒"));
             const star = el("button", "im-star", info.favorite ? "★" : "☆");
             star.title = info.favorite ? "Remove from favorites" : "Add to favorites (favorites always come first)";
             star.addEventListener("click", (ev) => {
@@ -686,11 +741,12 @@ function setupInputManagerWidget(node) {
             cell.title = info.path;
             cell.addEventListener("click", (ev) => onCellClick(ev, path));
             cell.addEventListener("dblclick", () => {
-                if (!state.multi) select(path);
+                if (!state.multi && !state.locked) select(path);
                 openLightbox(path);
             });
             grid.appendChild(cell);
         }
+        updateLockUi();
         if (state.truncated) note.textContent = `Showing the newest ${state.images.length} of ${state.images.length + state.truncated} images.`;
     }
 
@@ -942,7 +998,10 @@ function setupInputManagerWidget(node) {
                     yes.disabled = false;
                     return;
                 }
-                if (state.selectedList.includes(path)) setSelection(state.selectedList.filter((x) => x !== path));
+                if (state.selectedList.includes(path)) {
+                    dropLock();
+                    setSelection(state.selectedList.filter((x) => x !== path), true);
+                }
                 close();
                 await loadImages();
             });
@@ -1012,7 +1071,10 @@ function setupInputManagerWidget(node) {
                 }
             }
             confirmingDelete = false;
-            setSelection(failed);
+            if (state.selectedList.some((x) => paths.includes(x) && !failed.includes(x))) {
+                dropLock();
+                setSelection(failed, true);
+            }
             await loadImages();
             const done = paths.length - failed.length;
             setStatus(failed.length ? `Deleted ${done}; ${failed.length} could not be deleted.` : `Deleted ${done} picture${done > 1 ? "s" : ""}.`, failed.length > 0);
@@ -1161,7 +1223,7 @@ function setupInputManagerWidget(node) {
         state.dir = dirSelect.value;
         directoryWidget.value = state.dir;
         const keep = state.selected && ((findImage(state.selected) || {}).favorite || state.selected.startsWith(state.dir ? state.dir + "/" : ""));
-        if (state.selected && !keep) select("");
+        if (state.selected && !keep && !state.locked) select("");
         await loadImages();
     });
     function applyBlur() {
@@ -1197,6 +1259,7 @@ function setupInputManagerWidget(node) {
         state.dir = directoryWidget.value || DEFAULT_DIR;
         state.selected = imageWidget.value || "";
         state.multi = node.properties.multi === true;
+        state.locked = node.properties.locked === true;
         state.layout = layoutWidget.value === "vertical" ? "vertical" : "horizontal";
         let joinedList = [];
         try {
