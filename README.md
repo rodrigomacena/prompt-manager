@@ -63,6 +63,20 @@ Widgets: `channel` (a name, so several monitors can each follow their own node),
 
 Images are stored under `user/ImageMonitor/<channel>/`.
 
+## Outfit Builder node
+
+A fifth node, **Outfit Builder** (category `utils/prompt`), builds the clothing part of a prompt from a catalog of pieces and outputs a ready sentence such as `She is wearing a red satin mini dress, high heels and a gold pendant necklace.`
+
+- **Pick pieces**: tap pieces to toggle them (the catalog ships with ~250 pieces in categories like Swimwear, Dresses, Tops, Bottoms, Shoes, Accessories…). Use the search box and the category tabs to find them. Picked pieces show as chips above the list.
+- **Color / material**: every chip has a small field ("red satin", "black lace", "gold"…) that is placed before the piece name. "a / an" is handled automatically and plural pieces (jeans, boots, earrings…) get no article.
+- **Sentence order** is fixed (body, layers, shoes, accessories) so the text always reads naturally, whatever order you picked in.
+- **Who**: the first dropdown selects She / He / They / (none, just "Wearing …"). **⚙ Options** has a field to replace the start of the sentence ("The model is wearing") and how to join it to the incoming prompt (**space**, adding a full stop if missing, or **new paragraph**).
+- **Outputs**: `outfit` (only the sentence) and `combined` (the optional `prompt` input followed by the outfit, ready to feed a text encoder).
+- **🎲 Random mode**: instead of using every picked piece, each run uses **one piece per category** from what you picked; 📌 pinned chips are always included. Great for batches of variations.
+- **💾 Presets**: save the current outfit with a title, load it with one click, rename (✎), replace with the current outfit (⟳) or delete (✕). Presets are saved on the server.
+- **✎ Edit list**: add your own pieces (name, category, optional prompt text and singular/plural), edit or delete pieces. **↺ Restore missing defaults** brings back shipped pieces you deleted without touching your own. The list lives in `user/PromptManager/outfit_builder.json` (not in the repository), so it can differ per server.
+- Optional **Auto-resolve dress vs top/bottom** (⚙ Options): picking a dress or one-piece removes tops and bottoms (and the other way round); when off, a warning is shown instead.
+
 ## Installation
 
 1. Copy (or clone) this folder into `ComfyUI/custom_nodes/`:

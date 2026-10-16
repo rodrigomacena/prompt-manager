@@ -3,6 +3,7 @@ import random
 
 from . import storage
 from .image_monitor import push_images
+from .outfit_builder import MODES, PRONOUNS, SEPARATORS, build_outfit, combine
 from .input_manager import (
     InputManagerError,
     load_image_tensor,
@@ -82,6 +83,40 @@ class ModelManagerNode:
 
     def run(self):
         return ()
+
+
+class OutfitBuilderNode:
+    """Pick clothing pieces in the UI; outputs a sentence such as "She is wearing a red dress and high heels."."""
+
+    CATEGORY = "utils/prompt"
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("outfit", "combined")
+    FUNCTION = "run"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "selection": ("STRING", {"default": "[]", "multiline": False}),
+                "mode": (MODES, {"default": "fixed"}),
+                "pronoun": (PRONOUNS, {"default": "She"}),
+                "lead": ("STRING", {"default": "", "multiline": False}),
+                "separator": (SEPARATORS, {"default": "space"}),
+            },
+            "optional": {
+                "prompt": ("STRING", {"forceInput": True}),
+            },
+        }
+
+    def run(self, selection, mode, pronoun, lead, separator, prompt=None):
+        outfit = build_outfit(selection, mode, pronoun, lead)
+        return (outfit, combine(prompt, outfit, separator))
+
+    @classmethod
+    def IS_CHANGED(cls, selection, mode, pronoun, lead, separator, prompt=None):
+        if mode == "random":
+            return float("nan")
+        return f"{selection}:{pronoun}:{lead}:{separator}:{prompt}"
 
 
 class InputManagerNode:
@@ -199,6 +234,7 @@ NODE_CLASS_MAPPINGS = {
     "ModelManager": ModelManagerNode,
     "InputManager": InputManagerNode,
     "ImageMonitor": ImageMonitorNode,
+    "OutfitBuilder": OutfitBuilderNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -206,4 +242,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ModelManager": "Model Manager",
     "InputManager": "Input Manager",
     "ImageMonitor": "Image Monitor",
+    "OutfitBuilder": "Outfit Builder",
 }
