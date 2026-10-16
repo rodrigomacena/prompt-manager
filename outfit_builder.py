@@ -29,23 +29,33 @@ CATEGORY_ORDER = [
     "Swimwear",
     "Dresses",
     "One-Pieces",
+    "Formal & Business",
     "Tops",
     "Bottoms",
     "Activewear",
     "Lingerie",
     "Sleepwear",
     "Sexy Costumes",
+    "Uniforms",
+    "Fantasy & Cosplay",
+    "Traditional & Cultural",
+    "Style Looks",
     "Outerwear",
+    "Legwear",
     "Shoes",
     "Accessories",
 ]
-_UNKNOWN_RANK = CATEGORY_ORDER.index("Sexy Costumes") + 0.5
+_UNKNOWN_RANK = CATEGORY_ORDER.index("Style Looks") + 0.5
 
 PLURAL_WORDS = {
     "jeans", "shorts", "pants", "leggings", "trousers", "overalls", "dungarees", "panties", "boyshorts",
     "joggers", "sweatpants", "culottes", "heels", "pumps", "boots", "sandals", "mules", "flats", "loafers",
     "oxfords", "sneakers", "wedges", "espadrilles", "flip-flops", "slides", "janes", "earrings", "gloves",
     "stockings", "pantyhose", "aviators", "sunglasses", "briefs", "shawls", "shoes",
+    "tights", "socks", "warmers", "garters", "pajamas", "pyjamas", "slippers", "clogs", "brogues", "moccasins", "mittens",
+    "glasses", "goggles", "suspenders", "jeggings", "stilettos", "cleats", "skates", "earmuffs", "headphones", "scrubs",
+    "hold-ups", "stay-ups", "necklaces", "rings", "bracelets", "bangles", "pins", "links", "wings", "horns", "armor",
+    "gear", "overalls", "bloomers", "chaps", "capris", "knickers", "trainers", "pearls",
 }
 
 PRONOUNS = ["She", "He", "They", "(none)"]
@@ -85,14 +95,35 @@ def _item(name: str, category: str, text: Optional[str] = None, plural: Optional
     }
 
 
+_defaults_cache: Dict[str, Any] = {"mtime": None, "items": []}
+
+
 def default_items() -> List[Dict[str, Any]]:
-    with open(DEFAULT_CATALOG_PATH, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    items = []
-    for category, names in raw.items():
-        for name in names:
-            items.append(_item(name, category, item_id=f"{slugify(category)}-{slugify(name)}"))
-    return items
+    mtime = os.path.getmtime(DEFAULT_CATALOG_PATH)
+    if _defaults_cache["mtime"] != mtime:
+        with open(DEFAULT_CATALOG_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        items = []
+        for category, names in raw.items():
+            for name in names:
+                items.append(_item(name, category, item_id=f"{slugify(category)}-{slugify(name)}"))
+        _defaults_cache["items"] = items
+        _defaults_cache["mtime"] = mtime
+    return [dict(i) for i in _defaults_cache["items"]]
+
+
+def _merge_new_defaults(data: Dict[str, Any]) -> bool:
+    """Add shipped pieces this file has never seen (a piece you deleted is remembered and not added back)."""
+    defaults = default_items()
+    have = {i["id"] for i in data["items"]}
+    seen = set(data["seen"]) if isinstance(data.get("seen"), list) else set(have)
+    new = [d for d in defaults if d["id"] not in seen and d["id"] not in have]
+    seen_after = seen | {d["id"] for d in defaults}
+    changed = bool(new) or not isinstance(data.get("seen"), list) or len(seen_after) != len(data.get("seen", []))
+    if changed:
+        data["items"].extend(new)
+        data["seen"] = sorted(seen_after)
+    return changed
 
 
 def _read() -> Dict[str, Any]:
@@ -107,6 +138,8 @@ def _read() -> Dict[str, Any]:
         data = {"items": default_items(), "presets": data.get("presets", []) if isinstance(data, dict) else []}
         _write(data)
     data.setdefault("presets", [])
+    if _merge_new_defaults(data):
+        _write(data)
     return data
 
 
@@ -170,6 +203,7 @@ def restore_defaults() -> int:
         have = {i["id"] for i in data["items"]}
         missing = [i for i in default_items() if i["id"] not in have]
         data["items"].extend(missing)
+        data["seen"] = sorted(set(data.get("seen", [])) | {i["id"] for i in default_items()})
         _write(data)
         return len(missing)
 

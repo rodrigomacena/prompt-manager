@@ -4,8 +4,9 @@ import { api } from "../../scripts/api.js";
 const NODE_NAME = "OutfitBuilder";
 
 const CATEGORY_ORDER = [
-    "Swimwear", "Dresses", "One-Pieces", "Tops", "Bottoms", "Activewear",
-    "Lingerie", "Sleepwear", "Sexy Costumes", "Outerwear", "Shoes", "Accessories",
+    "Swimwear", "Dresses", "One-Pieces", "Formal & Business", "Tops", "Bottoms", "Activewear",
+    "Lingerie", "Sleepwear", "Sexy Costumes", "Uniforms", "Fantasy & Cosplay", "Traditional & Cultural",
+    "Style Looks", "Outerwear", "Legwear", "Shoes", "Accessories",
 ];
 const FULL_BODY = new Set(["Dresses", "One-Pieces"]);
 const SPLIT_BODY = new Set(["Tops", "Bottoms"]);
@@ -109,7 +110,7 @@ function el(tag, className, text) {
 
 function rank(category) {
     const i = CATEGORY_ORDER.indexOf(category);
-    return i >= 0 ? i : CATEGORY_ORDER.indexOf("Sexy Costumes") + 0.5;
+    return i >= 0 ? i : CATEGORY_ORDER.indexOf("Style Looks") + 0.5;
 }
 
 function hideWidget(widget) {
