@@ -350,6 +350,25 @@ const CSS_TEXT = `
     cursor: pointer;
     font-size: 11px;
 }
+.pm-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.pm-search-wrap { position: relative; flex: 1; min-width: 140px; }
+.pm-search {
+    width: 100%; box-sizing: border-box; background: var(--comfy-input-bg, #232323); color: var(--input-text, #ddd);
+    border: 1px solid var(--border-color, #444); border-radius: 4px; padding: 4px 22px 4px 6px; font-size: 12px; font-family: inherit;
+}
+.pm-search-clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--descrip-text, #999); font-size: 12px; padding: 0 3px; display: none; }
+.pm-search-clear:hover { color: #ff7b72; }
+.pm-sort-select {
+    background: var(--comfy-input-bg, #232323); color: var(--input-text, #ddd); border: 1px solid var(--border-color, #444);
+    border-radius: 4px; padding: 3px 4px; font-size: 11px; font-family: inherit;
+}
+.pm-sort-dir {
+    background: var(--comfy-input-bg, #232323); color: var(--input-text, #ddd); border: 1px solid var(--border-color, #444);
+    border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; white-space: nowrap;
+}
+.pm-sort-dir:hover { border-color: #6a6a6a; }
+.pm-count { font-size: 10px; color: var(--descrip-text, #888); white-space: nowrap; }
+.pm-nomatch { grid-column: 1 / -1; color: var(--descrip-text, #888); font-size: 11px; padding: 6px 2px; }
 .pm-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -763,6 +782,9 @@ function setupPromptManagerWidget(node) {
         mode: modeWidget.value || MODE_FIXED,
         prefix: prefixWidget.value || "",
         enrichInstructions: node.properties.enrichInstructions || "",
+        promptFilter: "",
+        promptSort: node.properties.promptSort || "rating",
+        promptOrder: node.properties.promptOrder || "desc",
         addingPrompt: false,
         settingsMenuOpen: false,
         prefixMenuOpen: false,
@@ -1233,6 +1255,8 @@ function setupPromptManagerWidget(node) {
         state.promptId = promptIdWidget.value || "";
         state.mode = modeWidget.value || MODE_FIXED;
         state.prefix = prefixWidget.value || "";
+        state.promptSort = node.properties.promptSort || "rating";
+        state.promptOrder = node.properties.promptOrder || "desc";
         state.previewOverride = promptTextWidget.value || null;
         state.enrichInstructions = node.properties.enrichInstructions || "";
         state.img2prompt.model = node.properties.img2promptModel || DEFAULT_VISION_MODEL;
@@ -1536,8 +1560,107 @@ function setupPromptManagerWidget(node) {
         }
     }
 
+    const SORT_LABELS = { rating: "Rating", date: "Date", title: "Title" };
+    const SORT_DEFAULT_ORDER = { rating: "desc", date: "desc", title: "asc" };
+    const ORDER_LABELS = {
+        rating: { desc: "Highest first", asc: "Lowest first" },
+        date: { desc: "Newest first", asc: "Oldest first" },
+        title: { asc: "A → Z", desc: "Z → A" },
+    };
+
+    function normalizeText(value) {
+        return String(value || "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "");
+    }
+
+    // Prompts are stored in the order they were created, so the array position doubles as the creation date.
     function sortedPrompts(group) {
-        return [...group.prompts].sort((a, b) => b.rating - a.rating);
+        const by = SORT_LABELS[state.promptSort] ? state.promptSort : "rating";
+        const dir = state.promptOrder === "asc" ? 1 : -1;
+        const list = group.prompts.map((prompt, index) => ({ prompt, index }));
+        list.sort((a, b) => {
+            let c = 0;
+            if (by === "rating") c = (a.prompt.rating || 0) - (b.prompt.rating || 0);
+            else if (by === "title") {
+                c = (a.prompt.title || a.prompt.text || "").localeCompare(b.prompt.title || b.prompt.text || "", undefined, {
+                    numeric: true,
+                    sensitivity: "base",
+                });
+            } else c = a.index - b.index;
+            return c ? c * dir : a.index - b.index;
+        });
+        return list.map((x) => x.prompt);
+    }
+
+    function filteredPrompts(group) {
+        const q = normalizeText(state.promptFilter).trim();
+        const all = sortedPrompts(group);
+        if (!q) return all;
+        return all.filter((p) => normalizeText(p.title).includes(q) || normalizeText(p.text).includes(q));
+    }
+
+    function renderToolbar(group, fillGrid) {
+        const bar = el("div", "pm-toolbar");
+        const wrap = el("div", "pm-search-wrap");
+        const search = document.createElement("input");
+        search.type = "text";
+        search.className = "pm-search";
+        search.placeholder = "Search title or text…";
+        search.value = state.promptFilter;
+        const clear = el("span", "pm-search-clear", "✕");
+        clear.title = "Clear search";
+        const syncClear = () => {
+            clear.style.display = state.promptFilter ? "block" : "none";
+        };
+        search.addEventListener("input", () => {
+            state.promptFilter = search.value;
+            syncClear();
+            fillGrid();
+        });
+        clear.addEventListener("click", () => {
+            state.promptFilter = "";
+            search.value = "";
+            syncClear();
+            fillGrid();
+            search.focus();
+        });
+        syncClear();
+        wrap.append(search, clear);
+        bar.appendChild(wrap);
+
+        const select = document.createElement("select");
+        select.className = "pm-sort-select";
+        select.title = "Sort prompts";
+        for (const key of Object.keys(SORT_LABELS)) {
+            const opt = el("option", "", "Sort: " + SORT_LABELS[key]);
+            opt.value = key;
+            select.appendChild(opt);
+        }
+        select.value = state.promptSort;
+        select.addEventListener("change", () => {
+            state.promptSort = select.value;
+            state.promptOrder = SORT_DEFAULT_ORDER[select.value];
+            node.properties.promptSort = state.promptSort;
+            node.properties.promptOrder = state.promptOrder;
+            render();
+        });
+        bar.appendChild(select);
+
+        const dir = el("button", "pm-sort-dir", (ORDER_LABELS[state.promptSort] || ORDER_LABELS.rating)[state.promptOrder]);
+        dir.title = "Reverse the order";
+        dir.addEventListener("click", () => {
+            state.promptOrder = state.promptOrder === "asc" ? "desc" : "asc";
+            node.properties.promptOrder = state.promptOrder;
+            render();
+        });
+        bar.appendChild(dir);
+
+        const count = el("span", "pm-count", "");
+        bar.appendChild(count);
+        bar._count = count;
+        return bar;
     }
 
     function renderCard(group, prompt) {
@@ -2047,10 +2170,19 @@ function setupPromptManagerWidget(node) {
                 content.appendChild(renderEditor(group));
             }
             const grid = el("div", "pm-grid");
-            for (const prompt of sortedPrompts(group)) {
-                grid.appendChild(renderCard(group, prompt));
-            }
-            grid.appendChild(renderAddCard());
+            const fillGrid = () => {
+                grid.textContent = "";
+                const shown = filteredPrompts(group);
+                for (const prompt of shown) grid.appendChild(renderCard(group, prompt));
+                if (!shown.length && state.promptFilter.trim()) {
+                    grid.appendChild(el("div", "pm-nomatch", "No prompts match your search."));
+                }
+                grid.appendChild(renderAddCard());
+                toolbar._count.textContent = state.promptFilter.trim() ? `${shown.length} / ${group.prompts.length}` : `${group.prompts.length}`;
+            };
+            const toolbar = renderToolbar(group, fillGrid);
+            content.appendChild(toolbar);
+            fillGrid();
             content.appendChild(grid);
         }
         main.appendChild(content);
