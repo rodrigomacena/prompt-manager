@@ -87,6 +87,22 @@ const CSS_TEXT = `
 .im-cell.im-locked .im-lock-mark { display: block; }
 .im-root.im-lockon .im-cell:not(.im-locked) { cursor: not-allowed; }
 .im-root.im-lockon .im-cell.im-locked { border-color: #c9811a; }
+.im-pin {
+    position: absolute; left: 4px; bottom: 4px; z-index: 3; width: 22px; height: 22px; border: none; border-radius: 11px;
+    background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; line-height: 22px; text-align: center; padding: 0; cursor: pointer;
+    display: none; opacity: 0.6;
+}
+.im-root.im-multi .im-pin { display: block; }
+.im-root.im-multi .im-cell:hover .im-pin { opacity: 1; }
+.im-pin:hover { background: rgba(0,0,0,0.8); }
+.im-cell.im-pinned .im-pin { opacity: 1; background: #2f9e5b; }
+.im-cell.im-pinned { border-color: #2f9e5b; }
+.im-pinbar { display: none; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 10px; color: var(--descrip-text, #999); }
+.im-pinchip {
+    cursor: pointer; padding: 1px 7px; border-radius: 10px; background: #2f9e5b; color: #fff; max-width: 150px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.im-pinchip-x { margin-left: 4px; opacity: 0.85; }
 .im-btn.im-active { background: #3b6fd8; border-color: #3b6fd8; color: #fff; }
 .im-cell .im-cell-name {
     position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 9px;
@@ -222,6 +238,7 @@ function setupInputManagerWidget(node) {
         sortOrder: node.properties.sortOrder,
         multi: node.properties.multi === true,
         locked: node.properties.locked === true,
+        pinned: Array.isArray(node.properties.pinned) ? node.properties.pinned.filter((x) => typeof x === "string") : [],
         selectedList: [],
         layout: layoutWidget.value === "vertical" ? "vertical" : "horizontal",
         layer: "mask",
@@ -311,6 +328,8 @@ function setupInputManagerWidget(node) {
     const lockBtn = el("button", "im-btn im-lockbtn", "🔓");
     previewHead.appendChild(lockBtn);
     preview.appendChild(previewHead);
+    const pinBar = el("div", "im-pinbar");
+    preview.appendChild(pinBar);
     const previewBox = el("div", "im-preview-box");
     const previewInfo = el("div", "im-preview-info");
     preview.appendChild(previewBox);
@@ -659,11 +678,75 @@ function setupInputManagerWidget(node) {
         }
     });
 
+    // Pinned pictures (Multi-image mode) are always part of the selection, first in the join order.
+    function withPins(list) {
+        if (!state.multi || !state.pinned.length) return list;
+        return [...state.pinned, ...list.filter((x) => !state.pinned.includes(x))];
+    }
+
+    function savePins() {
+        node.properties.pinned = [...state.pinned];
+    }
+
+    function updatePinUi() {
+        root.classList.toggle("im-multi", state.multi);
+        for (const cell of grid.children) {
+            if (!cell.dataset || !cell.dataset.path) continue;
+            const pinned = state.multi && state.pinned.includes(cell.dataset.path);
+            cell.classList.toggle("im-pinned", pinned);
+            const button = cell.querySelector(".im-pin");
+            if (button) {
+                button.textContent = pinned ? "🔒" : "🔓";
+                button.title = pinned
+                    ? "Locked: always part of the selection. Click to unlock."
+                    : "Lock this picture: it stays selected and is joined with whatever else you pick";
+            }
+        }
+        pinBar.textContent = "";
+        const show = state.multi && state.pinned.length > 0;
+        pinBar.style.display = show ? "flex" : "none";
+        if (!show) return;
+        pinBar.appendChild(el("span", null, "Always selected:"));
+        for (const path of state.pinned) {
+            const chip = el("span", "im-pinchip", path.split("/").pop());
+            chip.title = path + " (click to unlock)";
+            chip.appendChild(el("span", "im-pinchip-x", "✕"));
+            chip.addEventListener("click", () => togglePin(path));
+            pinBar.appendChild(chip);
+        }
+    }
+
+    function togglePin(path) {
+        if (state.pinned.includes(path)) {
+            state.pinned = state.pinned.filter((x) => x !== path);
+            savePins();
+            updatePinUi();
+            return;
+        }
+        if (state.locked) {
+            notifyLocked();
+            return;
+        }
+        state.pinned = [...state.pinned, path];
+        savePins();
+        setSelection(state.selectedList);
+        updatePinUi();
+    }
+
+    function unpinPaths(paths) {
+        const kept = state.pinned.filter((x) => !paths.includes(x));
+        if (kept.length === state.pinned.length) return;
+        state.pinned = kept;
+        savePins();
+        updatePinUi();
+    }
+
     function setSelection(list, force) {
         if (state.locked && !force) {
             notifyLocked();
             return;
         }
+        list = withPins(list);
         const primary = list[0] || "";
         if (primary !== state.selected || list.length >= 2) discardAllLayers();
         state.selectedList = list;
@@ -688,6 +771,10 @@ function setupInputManagerWidget(node) {
         const additive = ev.ctrlKey || ev.metaKey || ev.shiftKey || (state.multi && ev.pointerType === "touch");
         if (!additive) {
             select(path);
+            return;
+        }
+        if (state.multi && state.pinned.includes(path)) {
+            setStatus(`${path.split("/").pop()} is locked in the selection. Click its 🔒 to unlock it first.`, true);
             return;
         }
         const list = state.selectedList.includes(path) ? state.selectedList.filter((x) => x !== path) : [...state.selectedList, path];
@@ -730,6 +817,13 @@ function setupInputManagerWidget(node) {
             cell.appendChild(el("div", "im-cell-name", foreign ? `${info.dir || "."}/${info.name}` : info.name));
             cell.appendChild(el("div", "im-badge", index >= 0 ? String(index + 1) : ""));
             cell.appendChild(el("div", "im-lock-mark", "🔒"));
+            const pin = el("button", "im-pin", "🔓");
+            pin.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                togglePin(path);
+            });
+            pin.addEventListener("dblclick", (ev) => ev.stopPropagation());
+            cell.appendChild(pin);
             const star = el("button", "im-star", info.favorite ? "★" : "☆");
             star.title = info.favorite ? "Remove from favorites" : "Add to favorites (favorites always come first)";
             star.addEventListener("click", (ev) => {
@@ -747,6 +841,7 @@ function setupInputManagerWidget(node) {
             grid.appendChild(cell);
         }
         updateLockUi();
+        updatePinUi();
         if (state.truncated) note.textContent = `Showing the newest ${state.images.length} of ${state.images.length + state.truncated} images.`;
     }
 
@@ -998,6 +1093,7 @@ function setupInputManagerWidget(node) {
                     yes.disabled = false;
                     return;
                 }
+                unpinPaths([path]);
                 if (state.selectedList.includes(path)) {
                     dropLock();
                     setSelection(state.selectedList.filter((x) => x !== path), true);
@@ -1071,6 +1167,7 @@ function setupInputManagerWidget(node) {
                 }
             }
             confirmingDelete = false;
+            unpinPaths(paths.filter((x) => !failed.includes(x)));
             if (state.selectedList.some((x) => paths.includes(x) && !failed.includes(x))) {
                 dropLock();
                 setSelection(failed, true);
@@ -1179,6 +1276,7 @@ function setupInputManagerWidget(node) {
 
     function updateMultiUi() {
         multiBox.checked = state.multi;
+        updatePinUi();
         layoutSelect.style.display = state.multi ? "" : "none";
         layoutSelect.value = state.layout;
     }
@@ -1189,6 +1287,7 @@ function setupInputManagerWidget(node) {
         syncImagesWidget();
         updateSelectionClasses();
         renderPreview(true);
+        if (state.multi && state.pinned.length) setSelection(state.selectedList);
     });
     layoutSelect.addEventListener("change", () => {
         state.layout = layoutSelect.value;
@@ -1260,6 +1359,7 @@ function setupInputManagerWidget(node) {
         state.selected = imageWidget.value || "";
         state.multi = node.properties.multi === true;
         state.locked = node.properties.locked === true;
+        state.pinned = Array.isArray(node.properties.pinned) ? node.properties.pinned.filter((x) => typeof x === "string") : [];
         state.layout = layoutWidget.value === "vertical" ? "vertical" : "horizontal";
         let joinedList = [];
         try {
