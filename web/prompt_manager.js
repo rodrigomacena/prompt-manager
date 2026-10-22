@@ -219,6 +219,7 @@ const CSS_TEXT = `
     min-height: 0;
 }
 .pm-content {
+    overflow-anchor: none;
     flex: 1.3;
     min-height: 0;
     display: flex;
@@ -231,6 +232,7 @@ const CSS_TEXT = `
     background: rgba(0,0,0,0.15);
 }
 .pm-right {
+    overflow-anchor: none;
     flex: 1;
     min-width: 0;
     display: flex;
@@ -2054,6 +2056,7 @@ function setupPromptManagerWidget(node) {
     }
 
     let prefixBtn = null;
+    let fitPrefixNow = null;
 
     function render() {
         const scrollSnapshot = captureScroll();
@@ -2156,6 +2159,7 @@ function setupPromptManagerWidget(node) {
         });
         prefixRow.appendChild(prefixInput);
         content.appendChild(prefixRow);
+        fitPrefixNow = fitPrefix;
         requestAnimationFrame(fitPrefix);
 
         if (!group) {
@@ -2189,6 +2193,7 @@ function setupPromptManagerWidget(node) {
         main.appendChild(renderRightPanel(group, selectedPrompt));
 
         body.appendChild(main);
+        if (fitPrefixNow) fitPrefixNow();
         restoreScroll(scrollSnapshot);
 
         root.querySelectorAll(".pm-prefix-menu").forEach((m) => m.remove());
