@@ -103,6 +103,19 @@ const CSS_TEXT = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .im-pinchip-x { margin-left: 4px; opacity: 0.85; }
+.im-root.im-min .im-grid { grid-template-columns: 1fr !important; gap: 2px; }
+.im-root.im-min .im-cell {
+    aspect-ratio: auto; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-width: 1px; border-radius: 3px;
+}
+.im-root.im-min .im-cell .im-cell-name {
+    position: static; opacity: 1; background: none; flex: 1; min-width: 0; font-size: 12px; padding: 0; transition: none;
+}
+.im-root.im-min .im-badge { position: static; flex-shrink: 0; margin: 0; }
+.im-root.im-min .im-star, .im-root.im-min .im-pin, .im-root.im-min .im-cell .im-lock-mark {
+    position: static; flex-shrink: 0; opacity: 0.7; transform: none;
+}
+.im-root.im-min .im-cell:hover .im-star, .im-root.im-min .im-cell:hover .im-pin { opacity: 1; }
+.im-root.im-min .im-cell.im-fav .im-star, .im-root.im-min .im-cell.im-pinned .im-pin { opacity: 1; }
 .im-btn.im-active { background: #3b6fd8; border-color: #3b6fd8; color: #fff; }
 .im-cell .im-cell-name {
     position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 9px;
@@ -238,6 +251,7 @@ function setupInputManagerWidget(node) {
         sortOrder: node.properties.sortOrder,
         multi: node.properties.multi === true,
         locked: node.properties.locked === true,
+        minimized: node.properties.minimized === true,
         pinned: Array.isArray(node.properties.pinned) ? node.properties.pinned.filter((x) => typeof x === "string") : [],
         selectedList: [],
         layout: layoutWidget.value === "vertical" ? "vertical" : "horizontal",
@@ -310,8 +324,10 @@ function setupInputManagerWidget(node) {
     const refreshBtn = el("button", "im-btn", "⟳ Refresh");
     const blurBtn = el("button", "im-btn", "🙈 Blur");
     blurBtn.title = "Blur the thumbnails and the preview (double-click a picture to see it clearly)";
+    const minBtn = el("button", "im-btn", "▤ Minimize");
     header.appendChild(uploadBtn);
     header.appendChild(blurBtn);
+    header.appendChild(minBtn);
     header.appendChild(refreshBtn);
     header.appendChild(fileInput);
     root.appendChild(header);
@@ -807,12 +823,14 @@ function setupInputManagerWidget(node) {
                 "im-cell" + (info.favorite ? " im-fav" : "") + (index >= 0 ? " im-selected" : "") + (index >= 0 && state.selectedList.length >= 2 ? " im-picked" : "")
             );
             cell.dataset.path = path;
-            const img = document.createElement("img");
-            img.loading = "lazy";
-            img.decoding = "async";
-            img.alt = info.name;
-            img.src = imageUrl("thumb", path, info.mtime);
-            cell.appendChild(img);
+            if (!state.minimized) {
+                const img = document.createElement("img");
+                img.loading = "lazy";
+                img.decoding = "async";
+                img.alt = info.name;
+                img.src = imageUrl("thumb", path, info.mtime);
+                cell.appendChild(img);
+            }
             const foreign = info.favorite && info.dir !== state.dir;
             cell.appendChild(el("div", "im-cell-name", foreign ? `${info.dir || "."}/${info.name}` : info.name));
             cell.appendChild(el("div", "im-badge", index >= 0 ? String(index + 1) : ""));
@@ -1325,6 +1343,22 @@ function setupInputManagerWidget(node) {
         if (state.selected && !keep && !state.locked) select("");
         await loadImages();
     });
+    function applyMinimized() {
+        const on = state.minimized;
+        root.classList.toggle("im-min", on);
+        minBtn.classList.toggle("im-active", on);
+        minBtn.textContent = on ? "▦ Thumbnails" : "▤ Minimize";
+        minBtn.title = on
+            ? "Show the thumbnails again"
+            : "Minimize: replace the thumbnails by a light list of names (nothing is downloaded or drawn), to speed up a slow browser or iPad";
+        sliderWrap.style.display = on ? "none" : "";
+    }
+    minBtn.addEventListener("click", () => {
+        state.minimized = !state.minimized;
+        node.properties.minimized = state.minimized;
+        applyMinimized();
+        renderGrid();
+    });
     function applyBlur() {
         const on = node.properties.blur === true;
         root.classList.toggle("im-blur", on);
@@ -1336,6 +1370,7 @@ function setupInputManagerWidget(node) {
         applyBlur();
     });
     applyBlur();
+    applyMinimized();
 
     slider.addEventListener("input", () => {
         state.thumbSize = Number(slider.value);
@@ -1359,6 +1394,8 @@ function setupInputManagerWidget(node) {
         state.selected = imageWidget.value || "";
         state.multi = node.properties.multi === true;
         state.locked = node.properties.locked === true;
+        state.minimized = node.properties.minimized === true;
+        applyMinimized();
         state.pinned = Array.isArray(node.properties.pinned) ? node.properties.pinned.filter((x) => typeof x === "string") : [];
         state.layout = layoutWidget.value === "vertical" ? "vertical" : "horizontal";
         let joinedList = [];
