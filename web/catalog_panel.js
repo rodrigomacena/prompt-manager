@@ -10,7 +10,7 @@ const POSE_ORDER = [
     "Standing", "Sitting", "Lying Down", "Kneeling", "Crouching & Squatting", "Leaning", "Walking & Motion", "Dancing",
     "Yoga & Stretching", "Action & Sports", "Sensual - Standing", "Sensual - Sitting", "Sensual - Lying",
     "Sensual - Kneeling & Crawling", "Pin-Up & Boudoir", "Bedroom & Bed", "Sofa & Chairs", "Beach & Pool", "Urban & Street",
-    "Home & Windows", "Hands & Arms", "Sensual - Teasing Gestures", "Head & Gaze", "View & Angle",
+    "Home & Windows", "Hands & Arms", "Sensual - Teasing Gestures", "Head & Gaze", "View & Angle", "+18",
 ];
 const ENV_ORDER = [
     "Home & Interior", "Luxury & Hotels", "Bathroom & Spa", "Cafés, Bars & Restaurants", "Work, Study & Studios",
