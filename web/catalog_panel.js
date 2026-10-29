@@ -12,6 +12,17 @@ const POSE_ORDER = [
     "Sensual - Kneeling & Crawling", "Pin-Up & Boudoir", "Bedroom & Bed", "Sofa & Chairs", "Beach & Pool", "Urban & Street",
     "Home & Windows", "Hands & Arms", "Sensual - Teasing Gestures", "Head & Gaze", "View & Angle",
 ];
+const ENV_ORDER = [
+    "Home & Interior", "Luxury & Hotels", "Bathroom & Spa", "Cafés, Bars & Restaurants", "Work, Study & Studios",
+    "Studio Backdrops", "Beach & Coast", "Forests & Woods", "Mountains & Canyons", "Lakes, Rivers & Waterfalls",
+    "Fields & Gardens", "Desert & Savanna", "Snow & Ice", "Jungle & Tropics", "City & Street", "Transport",
+    "Culture & Historic", "Fantasy & Sci-Fi", "Time of Day", "Weather & Sky", "Season", "Atmosphere & Details",
+];
+const LIGHT_ORDER = [
+    "Natural Daylight", "Golden & Blue Hour", "Window & Indoor Light", "Studio Lighting", "Dramatic & Cinematic",
+    "Neon & Colored", "Warm & Cozy", "Night & Low Light", "Weather & Atmosphere", "Light Direction & Quality",
+    "Color & Direction Combos", "Special Effects", "Mood & Style",
+];
 const OUTFIT_CFG = {
     key: "outfit",
     base: "/outfit_builder",
@@ -21,6 +32,7 @@ const OUTFIT_CFG = {
     unknownRank: CATEGORY_ORDER.indexOf("Style Looks") + 0.5,
     hasColor: true,
     hasPlural: true,
+    hasPronoun: true,
     conflicts: true,
     pickHint: "Pick pieces below…",
     emptyHint: "Nothing picked yet. Tap pieces below to build the outfit.",
@@ -38,6 +50,7 @@ const POSE_CFG = {
     unknownRank: POSE_ORDER.indexOf("Home & Windows") + 0.5,
     hasColor: false,
     hasPlural: false,
+    hasPronoun: true,
     conflicts: false,
     pickHint: "Pick poses below…",
     emptyHint: "Nothing picked yet. Tap poses below; they are joined into one sentence.",
@@ -45,6 +58,42 @@ const POSE_CFG = {
     leadPlaceholder: "Start of the sentence, e.g. The model is (empty = automatic)",
     textPlaceholder: "Text in the prompt, e.g. sitting with {poss} legs crossed (empty = name in lowercase)",
     sepTitle: "How to join the pose to the prompt",
+};
+const ENV_CFG = {
+    key: "env",
+    base: "/environment_builder",
+    noun: "place",
+    nouns: "environments",
+    order: ENV_ORDER,
+    unknownRank: ENV_ORDER.indexOf("Fantasy & Sci-Fi") + 0.5,
+    hasColor: false,
+    hasPlural: false,
+    hasPronoun: false,
+    conflicts: false,
+    pickHint: "Pick places and details below…",
+    emptyHint: "Nothing picked yet. Pick a place, then add time of day, weather or atmosphere.",
+    randomHint: "Fixed: every picked item. Random: one item per category each run (📌 pinned items always stay).",
+    leadPlaceholder: 'Start of the sentence (empty = "The scene is set in")',
+    textPlaceholder: "Text in the prompt, e.g. a cozy cabin by the lake (empty = name in lowercase)",
+    sepTitle: "How to join the environment to the prompt",
+};
+const LIGHT_CFG = {
+    key: "light",
+    base: "/lighting_builder",
+    noun: "lighting",
+    nouns: "lighting types",
+    order: LIGHT_ORDER,
+    unknownRank: LIGHT_ORDER.indexOf("Mood & Style") + 0.5,
+    hasColor: false,
+    hasPlural: false,
+    hasPronoun: false,
+    conflicts: false,
+    pickHint: "Pick lighting below…",
+    emptyHint: "Nothing picked yet. Tap lighting types below; they are joined into one sentence.",
+    randomHint: "Fixed: every picked lighting. Random: one lighting per category each run (📌 pinned ones always stay).",
+    leadPlaceholder: 'Start of the sentence (empty = "The lighting is")',
+    textPlaceholder: "Text in the prompt, e.g. soft window light (empty = name in lowercase)",
+    sepTitle: "How to join the lighting to the prompt",
 };
 const FULL_BODY = new Set(["Dresses", "One-Pieces"]);
 const SPLIT_BODY = new Set(["Tops", "Bottoms"]);
@@ -176,7 +225,7 @@ function buildPanel(node, widgets, opts) {
     const cfg = opts.cfg;
     const selectionWidget = widgets.selection;
     const modeWidget = widgets.mode;
-    const pronounWidget = widgets.pronoun;
+    const pronounWidget = widgets.pronoun || { value: "She" };
     const leadWidget = widgets.lead;
     const separatorWidget = widgets.separator;
     const AUTO_KEY = opts.autoKey || "autoResolve";
@@ -224,7 +273,8 @@ function buildPanel(node, widgets, opts) {
     const optionsBtn = el("button", "ob-btn", "⚙ Options");
     const presetsBtn = el("button", "ob-btn", "💾 Presets");
     const clearBtn = el("button", "ob-btn", "Clear all");
-    topBar.append(pronounSel, modeSel, el("div", "ob-spacer"), optionsBtn, presetsBtn, clearBtn);
+    if (cfg.hasPronoun) topBar.append(pronounSel);
+    topBar.append(modeSel, el("div", "ob-spacer"), optionsBtn, presetsBtn, clearBtn);
 
     const options = el("div", "ob-options");
     const leadInput = el("input", "ob-input");
@@ -771,4 +821,12 @@ export function createOutfitPanel(node, widgets, opts = {}) {
 
 export function createPosePanel(node, widgets, opts = {}) {
     return buildPanel(node, widgets, { ...opts, cfg: POSE_CFG });
+}
+
+export function createEnvironmentPanel(node, widgets, opts = {}) {
+    return buildPanel(node, widgets, { ...opts, cfg: ENV_CFG });
+}
+
+export function createLightingPanel(node, widgets, opts = {}) {
+    return buildPanel(node, widgets, { ...opts, cfg: LIGHT_CFG });
 }

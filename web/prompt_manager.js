@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { createOutfitPanel, createPosePanel, injectOutfitStyles } from "./catalog_panel.js";
+import { createOutfitPanel, createPosePanel, createEnvironmentPanel, createLightingPanel, injectOutfitStyles } from "./catalog_panel.js";
 
 const NODE_NAME = "PromptManager";
 
@@ -278,6 +278,18 @@ const CSS_TEXT = `
     background: rgba(255, 79, 163, 0.28);
 }
 .pm-seg.pm-seg-pose .pm-seg-label { color: #ffb3d6; }
+.pm-seg.pm-seg-env {
+    border-color: #2ecc71;
+    border-left-color: #2ecc71;
+    background: rgba(46, 204, 113, 0.26);
+}
+.pm-seg.pm-seg-env .pm-seg-label { color: #9bf0c0; }
+.pm-seg.pm-seg-light {
+    border-color: #ffd60a;
+    border-left-color: #ffd60a;
+    background: rgba(255, 214, 10, 0.24);
+}
+.pm-seg.pm-seg-light .pm-seg-label { color: #fff0a0; }
 .pm-seg.pm-seg-outfit {
     border-color: #ff9f1c;
     border-left-color: #ff9f1c;
@@ -805,7 +817,16 @@ function hideWidget(node, widget) {
     widget.options.surfaces = { canvas: "never", vueNode: "never", panel: "never" };
 }
 
-const MIN_NODE_WIDTH = 1650;
+const MIN_NODE_WIDTH = 2350;
+
+// The picker columns between the prompt list and the Prompt box. Each one stores its choice in hidden widgets named
+// <prefix>selection / mode / lead / separator (and pronoun when it has one) and adds a coloured band to the Prompt box.
+const CATALOG_COLUMNS = [
+    { key: "outfit", prefix: "outfit_", title: "Outfit Builder", label: "Outfit", create: createOutfitPanel, pronoun: true },
+    { key: "pose", prefix: "pose_", title: "Pose Builder", label: "Pose", create: createPosePanel, pronoun: true },
+    { key: "env", prefix: "env_", title: "Environment Builder", label: "Environment", create: createEnvironmentPanel, pronoun: false },
+    { key: "light", prefix: "light_", title: "Lighting Builder", label: "Lighting", create: createLightingPanel, pronoun: false },
+];
 
 function setupPromptManagerWidget(node) {
     const modeWidget = node.widgets.find((w) => w.name === "mode");
@@ -815,24 +836,15 @@ function setupPromptManagerWidget(node) {
     const prefixWidget = node.widgets.find((w) => w.name === "prefix");
 
     [modeWidget, groupIdWidget, promptIdWidget, promptTextWidget, prefixWidget].forEach((w) => hideWidget(node, w));
-    const outfitWidgets = {
-        selection: node.widgets.find((w) => w.name === "outfit_selection"),
-        mode: node.widgets.find((w) => w.name === "outfit_mode"),
-        pronoun: node.widgets.find((w) => w.name === "outfit_pronoun"),
-        lead: node.widgets.find((w) => w.name === "outfit_lead"),
-        separator: node.widgets.find((w) => w.name === "outfit_separator"),
-    };
-    const hasOutfit = Object.values(outfitWidgets).every(Boolean);
-    if (hasOutfit) Object.values(outfitWidgets).forEach((w) => hideWidget(node, w));
-    const poseWidgets = {
-        selection: node.widgets.find((w) => w.name === "pose_selection"),
-        mode: node.widgets.find((w) => w.name === "pose_mode"),
-        pronoun: node.widgets.find((w) => w.name === "pose_pronoun"),
-        lead: node.widgets.find((w) => w.name === "pose_lead"),
-        separator: node.widgets.find((w) => w.name === "pose_separator"),
-    };
-    const hasPose = Object.values(poseWidgets).every(Boolean);
-    if (hasPose) Object.values(poseWidgets).forEach((w) => hideWidget(node, w));
+    const catalogs = [];
+    for (const def of CATALOG_COLUMNS) {
+        const find = (name) => node.widgets.find((w) => w.name === def.prefix + name);
+        const widgets = { selection: find("selection"), mode: find("mode"), lead: find("lead"), separator: find("separator") };
+        if (def.pronoun) widgets.pronoun = find("pronoun");
+        if (!Object.values(widgets).every(Boolean)) continue; // an older server without this column
+        Object.values(widgets).forEach((w) => hideWidget(node, w));
+        catalogs.push({ def, widgets, text: "", random: false, panel: null, column: el("div", "pm-outfit pm-" + def.key) });
+    }
 
     if (!node.properties) node.properties = {};
     if (node.properties.enrichInstructions === undefined) node.properties.enrichInstructions = "";
@@ -858,10 +870,6 @@ function setupPromptManagerWidget(node) {
         enrich: { loading: false, error: "", result: "" },
         enrichMode: "existing",
         previewOverride: null,
-        outfitText: "",
-        outfitRandom: false,
-        poseText: "",
-        poseRandom: false,
         segs: null,
         img2prompt: {
             imageDataUrl: null,
@@ -877,53 +885,34 @@ function setupPromptManagerWidget(node) {
     const body = el("div", "pm-body");
     root.appendChild(body);
 
-    // the Prompt box shows the prefix and the outfit around the editable text; this refreshes those two blocks
+    // the Prompt box shows the prefix and the picked outfit / pose / environment / lighting above the editable text
     function updateSegments() {
         const segs = state.segs;
         if (!segs) return;
         const prefix = (state.prefix || "").trim();
         segs.prefix.style.display = prefix ? "" : "none";
         segs.prefixText.textContent = prefix;
-        segs.outfit.style.display = state.outfitText ? "" : "none";
-        segs.outfitText.textContent = state.outfitText;
-        segs.outfitLabel.textContent = state.outfitRandom ? "Outfit 🎲 — random pick at every run (this is a preview)" : "Outfit";
-        segs.pose.style.display = state.poseText ? "" : "none";
-        segs.poseText.textContent = state.poseText;
-        segs.poseLabel.textContent = state.poseRandom ? "Pose 🎲 — random pick at every run (this is a preview)" : "Pose";
+        for (const c of catalogs) {
+            const band = segs.bands[c.def.key];
+            band.seg.style.display = c.text ? "" : "none";
+            band.text.textContent = c.text;
+            band.label.textContent = c.random ? `${c.def.label} 🎲 — random pick at every run (this is a preview)` : c.def.label;
+        }
     }
 
-    let outfitPanel = null;
-    const outfitColumn = el("div", "pm-outfit");
-    if (hasOutfit) {
+    for (const c of catalogs) {
         injectOutfitStyles();
-        outfitColumn.appendChild(el("div", "pm-preview-title", "Outfit Builder"));
-        outfitPanel = createOutfitPanel(node, outfitWidgets, {
-            autoKey: "outfitAutoResolve",
+        c.column.appendChild(el("div", "pm-preview-title", c.def.title));
+        c.panel = c.def.create(node, c.widgets, {
+            autoKey: c.def.key + "AutoResolve",
             showOutput: false,
             onPreview: (text, info) => {
-                state.outfitText = text;
-                state.outfitRandom = info.random;
+                c.text = text;
+                c.random = info.random;
                 updateSegments();
             },
         });
-        outfitColumn.appendChild(outfitPanel.root);
-    }
-
-    let posePanel = null;
-    const poseColumn = el("div", "pm-outfit pm-pose");
-    if (hasPose) {
-        injectOutfitStyles();
-        poseColumn.appendChild(el("div", "pm-preview-title", "Pose Builder"));
-        posePanel = createPosePanel(node, poseWidgets, {
-            autoKey: "poseAutoResolve",
-            showOutput: false,
-            onPreview: (text, info) => {
-                state.poseText = text;
-                state.poseRandom = info.random;
-                updateSegments();
-            },
-        });
-        poseColumn.appendChild(posePanel.root);
+        c.column.appendChild(c.panel.root);
     }
 
     function showModal({ message, defaultValue, mode }) {
@@ -1380,8 +1369,7 @@ function setupPromptManagerWidget(node) {
         state.img2prompt.model = node.properties.img2promptModel || DEFAULT_VISION_MODEL;
         state.img2prompt.instructions = node.properties.img2promptInstructions || "";
         render();
-        if (outfitPanel) outfitPanel.refresh();
-        if (posePanel) posePanel.refresh();
+        catalogs.forEach((c) => c.panel && c.panel.refresh());
     }
     node._pmRefreshFromWidgets = refreshFromWidgets;
 
@@ -2064,20 +2052,19 @@ function setupPromptManagerWidget(node) {
         const prefixLabel = el("div", "pm-seg-label", "Prefix");
         const prefixText = el("div", "pm-seg-text");
         prefixSeg.append(prefixLabel, prefixText);
-        const outfitSeg = el("div", "pm-seg pm-seg-outfit");
-        const outfitLabel = el("div", "pm-seg-label", "Outfit");
-        const outfitText = el("div", "pm-seg-text");
-        outfitSeg.append(outfitLabel, outfitText);
-        const poseSeg = el("div", "pm-seg pm-seg-pose");
-        const poseLabel = el("div", "pm-seg-label", "Pose");
-        const poseText = el("div", "pm-seg-text");
-        poseSeg.append(poseLabel, poseText);
-        state.segs = { prefix: prefixSeg, prefixText, outfit: outfitSeg, outfitText, outfitLabel, pose: poseSeg, poseText, poseLabel };
+        const bands = {};
+        for (const c of catalogs) {
+            const seg = el("div", "pm-seg pm-seg-" + c.def.key);
+            const label = el("div", "pm-seg-label", c.def.label);
+            const text = el("div", "pm-seg-text");
+            seg.append(label, text);
+            bands[c.def.key] = { seg, text, label };
+        }
+        state.segs = { prefix: prefixSeg, prefixText, bands };
         updateSegments();
 
         preview.appendChild(prefixSeg);
-        preview.appendChild(outfitSeg);
-        preview.appendChild(poseSeg);
+        for (const c of catalogs) preview.appendChild(state.segs.bands[c.def.key].seg);
         preview.appendChild(textarea);
         preview.appendChild(badge);
         preview.appendChild(replaceBtn);
@@ -2327,8 +2314,7 @@ function setupPromptManagerWidget(node) {
             content.appendChild(grid);
         }
         main.appendChild(content);
-        if (hasOutfit) main.appendChild(outfitColumn);
-        if (hasPose) main.appendChild(poseColumn);
+        for (const c of catalogs) main.appendChild(c.column);
         main.appendChild(renderRightPanel(group, selectedPrompt));
 
         body.appendChild(main);

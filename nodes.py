@@ -5,6 +5,8 @@ from . import storage
 from .image_monitor import push_images
 from .outfit_builder import MODES, PRONOUNS, SEPARATORS, build_outfit, combine
 from .pose_builder import build_pose
+from .environment_builder import build_environment
+from .lighting_builder import build_lighting
 from .input_manager import (
     InputManagerError,
     load_image_tensor,
@@ -48,6 +50,14 @@ class PromptManagerNode:
                 "pose_pronoun": (PRONOUNS, {"default": "She"}),
                 "pose_lead": ("STRING", {"default": "", "multiline": False}),
                 "pose_separator": (SEPARATORS, {"default": "space"}),
+                "env_selection": ("STRING", {"default": "[]", "multiline": False}),
+                "env_mode": (MODES, {"default": "fixed"}),
+                "env_lead": ("STRING", {"default": "", "multiline": False}),
+                "env_separator": (SEPARATORS, {"default": "space"}),
+                "light_selection": ("STRING", {"default": "[]", "multiline": False}),
+                "light_mode": (MODES, {"default": "fixed"}),
+                "light_lead": ("STRING", {"default": "", "multiline": False}),
+                "light_separator": (SEPARATORS, {"default": "space"}),
             },
         }
 
@@ -68,6 +78,14 @@ class PromptManagerNode:
         pose_pronoun="She",
         pose_lead="",
         pose_separator="space",
+        env_selection="[]",
+        env_mode="fixed",
+        env_lead="",
+        env_separator="space",
+        light_selection="[]",
+        light_mode="fixed",
+        light_lead="",
+        light_separator="space",
     ):
         db = storage.load_db()
         group = storage.get_group(db, group_id) if group_id else None
@@ -88,6 +106,12 @@ class PromptManagerNode:
         pose = build_pose(pose_selection, pose_mode, pose_pronoun, pose_lead)
         if pose:
             combined = combine(combined, pose, pose_separator)
+        environment = build_environment(env_selection, env_mode, "She", env_lead)
+        if environment:
+            combined = combine(combined, environment, env_separator)
+        lighting = build_lighting(light_selection, light_mode, "She", light_lead)
+        if lighting:
+            combined = combine(combined, lighting, light_separator)
         return (combined,)
 
     @classmethod
@@ -108,16 +132,29 @@ class PromptManagerNode:
         pose_pronoun="She",
         pose_lead="",
         pose_separator="space",
+        env_selection="[]",
+        env_mode="fixed",
+        env_lead="",
+        env_separator="space",
+        light_selection="[]",
+        light_mode="fixed",
+        light_lead="",
+        light_separator="space",
     ):
         if mode in (MODE_RANDOM, MODE_SEQUENTIAL):
             return float("nan")
-        if outfit_mode == "random" and outfit_selection not in ("", "[]"):
-            return float("nan")
-        if pose_mode == "random" and pose_selection not in ("", "[]"):
-            return float("nan")
+        for column_mode, column_selection in (
+            (outfit_mode, outfit_selection),
+            (pose_mode, pose_selection),
+            (env_mode, env_selection),
+            (light_mode, light_selection),
+        ):
+            if column_mode == "random" and column_selection not in ("", "[]"):
+                return float("nan")
         return (
             f"{group_id}:{prompt_id}:{prompt_text}:{prefix}:{outfit_selection}:{outfit_pronoun}:{outfit_lead}:{outfit_separator}"
             f":{pose_selection}:{pose_pronoun}:{pose_lead}:{pose_separator}"
+            f":{env_selection}:{env_lead}:{env_separator}:{light_selection}:{light_lead}:{light_separator}"
         )
 
 
