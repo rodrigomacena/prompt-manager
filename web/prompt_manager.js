@@ -286,7 +286,8 @@ const CSS_TEXT = `
     border: 1px solid #3b8bff;
     border-left: 5px solid #3b8bff;
     border-radius: 4px;
-    padding: 5px 8px 6px;
+    padding: 3px 24px 4px 7px;
+    position: relative;
     background: rgba(59, 139, 255, 0.28);
 }
 .pm-seg .pm-seg-label { color: #9cc6ff; }
@@ -314,8 +315,13 @@ const CSS_TEXT = `
     background: rgba(255, 159, 28, 0.28);
 }
 .pm-seg.pm-seg-outfit .pm-seg-label { color: #ffd08a; }
-.pm-seg-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
-.pm-seg-text { font-size: 12px; line-height: 1.45; color: #fff; white-space: pre-wrap; word-break: break-word; }
+.pm-seg-label { display: inline; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }
+.pm-seg-text { display: inline; font-size: 11px; line-height: 1.35; color: #fff; white-space: pre-wrap; word-break: break-word; }
+.pm-seg-x {
+    position: absolute; top: 3px; right: 4px; width: 17px; height: 17px; padding: 0; border: none; border-radius: 9px;
+    background: rgba(0, 0, 0, 0.4); color: #fff; font-size: 9px; line-height: 17px; text-align: center; cursor: pointer;
+}
+.pm-seg-x:hover { background: #d9534f; }
 .pm-preview-box {
     flex: 1;
     min-height: 60px;
@@ -917,7 +923,8 @@ function setupPromptManagerWidget(node) {
             const band = segs.bands[c.def.key];
             band.seg.style.display = c.text ? "" : "none";
             band.text.textContent = c.text;
-            band.label.textContent = c.random ? `${c.def.label} 🎲 — random pick at every run (this is a preview)` : c.def.label;
+            band.label.textContent = c.random ? `${c.def.label} 🎲` : c.def.label;
+            band.label.title = c.random ? "Random pick at every run: this is only a preview" : "";
         }
     }
 
@@ -2128,13 +2135,23 @@ function setupPromptManagerWidget(node) {
         const prefixSeg = el("div", "pm-seg pm-seg-prefix");
         const prefixLabel = el("div", "pm-seg-label", "Prefix");
         const prefixText = el("div", "pm-seg-text");
-        prefixSeg.append(prefixLabel, prefixText);
+        const prefixX = el("button", "pm-seg-x", "✕");
+        prefixX.title = "Clear the prefix";
+        prefixX.addEventListener("click", () => {
+            state.prefix = "";
+            prefixWidget.value = "";
+            render();
+        });
+        prefixSeg.append(prefixLabel, prefixText, prefixX);
         const bands = {};
         for (const c of catalogs) {
             const seg = el("div", "pm-seg pm-seg-" + c.def.key);
             const label = el("div", "pm-seg-label", c.def.label);
             const text = el("div", "pm-seg-text");
-            seg.append(label, text);
+            const x = el("button", "pm-seg-x", "✕");
+            x.title = `Clear everything picked in ${c.def.title}`;
+            x.addEventListener("click", () => c.panel && c.panel.clear());
+            seg.append(label, text, x);
             bands[c.def.key] = { seg, text, label };
         }
         state.segs = { prefix: prefixSeg, prefixText, bands };

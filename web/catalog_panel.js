@@ -466,12 +466,13 @@ function buildPanel(node, widgets, opts) {
         options.classList.toggle("ob-show", state.optionsOpen);
         optionsBtn.classList.toggle("ob-on", state.optionsOpen);
     });
-    clearBtn.addEventListener("click", () => {
+    function clearSelection() {
         state.selection = [];
         commit();
         renderChips();
         renderGrid();
-    });
+    }
+    clearBtn.addEventListener("click", clearSelection);
 
     // ---- selection logic
     const isSelected = (id) => state.selection.some((e) => e.id === id);
@@ -834,7 +835,7 @@ function buildPanel(node, widgets, opts) {
     renderChips();
     loadCatalog();
     schedulePreview();
-    return { root, refresh };
+    return { root, refresh, clear: clearSelection };
 }
 
 export function createOutfitPanel(node, widgets, opts = {}) {
