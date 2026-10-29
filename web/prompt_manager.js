@@ -317,6 +317,7 @@ const CSS_TEXT = `
 .pm-seg.pm-seg-outfit .pm-seg-label { color: #ffd08a; }
 .pm-seg-label { display: inline; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }
 .pm-seg-text { display: inline; font-size: 11px; line-height: 1.35; color: #fff; white-space: pre-wrap; word-break: break-word; }
+.pm-seg.pm-seg-prefix { padding-right: 7px; }
 .pm-seg-x {
     position: absolute; top: 3px; right: 4px; width: 17px; height: 17px; padding: 0; border: none; border-radius: 9px;
     background: rgba(0, 0, 0, 0.4); color: #fff; font-size: 9px; line-height: 17px; text-align: center; cursor: pointer;
@@ -2135,14 +2136,7 @@ function setupPromptManagerWidget(node) {
         const prefixSeg = el("div", "pm-seg pm-seg-prefix");
         const prefixLabel = el("div", "pm-seg-label", "Prefix");
         const prefixText = el("div", "pm-seg-text");
-        const prefixX = el("button", "pm-seg-x", "✕");
-        prefixX.title = "Clear the prefix";
-        prefixX.addEventListener("click", () => {
-            state.prefix = "";
-            prefixWidget.value = "";
-            render();
-        });
-        prefixSeg.append(prefixLabel, prefixText, prefixX);
+        prefixSeg.append(prefixLabel, prefixText);
         const bands = {};
         for (const c of catalogs) {
             const seg = el("div", "pm-seg pm-seg-" + c.def.key);
