@@ -231,6 +231,8 @@ const CSS_TEXT = `
     padding: 6px;
     background: rgba(0,0,0,0.15);
 }
+/* the list panel scrolls; its children must keep their height instead of being squashed (the mode bar vanished in big groups) */
+.pm-content > * { flex-shrink: 0; }
 .pm-right {
     overflow-anchor: none;
     flex: 1;
