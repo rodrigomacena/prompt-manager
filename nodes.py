@@ -4,6 +4,7 @@ import random
 from . import storage
 from .image_monitor import push_images
 from .outfit_builder import MODES, PRONOUNS, SEPARATORS, build_outfit, combine
+from .pose_builder import build_pose
 from .input_manager import (
     InputManagerError,
     load_image_tensor,
@@ -42,6 +43,11 @@ class PromptManagerNode:
                 "outfit_pronoun": (PRONOUNS, {"default": "She"}),
                 "outfit_lead": ("STRING", {"default": "", "multiline": False}),
                 "outfit_separator": (SEPARATORS, {"default": "space"}),
+                "pose_selection": ("STRING", {"default": "[]", "multiline": False}),
+                "pose_mode": (MODES, {"default": "fixed"}),
+                "pose_pronoun": (PRONOUNS, {"default": "She"}),
+                "pose_lead": ("STRING", {"default": "", "multiline": False}),
+                "pose_separator": (SEPARATORS, {"default": "space"}),
             },
         }
 
@@ -57,6 +63,11 @@ class PromptManagerNode:
         outfit_pronoun="She",
         outfit_lead="",
         outfit_separator="space",
+        pose_selection="[]",
+        pose_mode="fixed",
+        pose_pronoun="She",
+        pose_lead="",
+        pose_separator="space",
     ):
         db = storage.load_db()
         group = storage.get_group(db, group_id) if group_id else None
@@ -70,10 +81,14 @@ class PromptManagerNode:
             text = prompt_text
 
         combined = _combine(prefix, text)
+        # nothing picked in the outfit / pose columns: the prompt is left exactly as it was
         outfit = build_outfit(outfit_selection, outfit_mode, outfit_pronoun, outfit_lead)
-        if not outfit:  # nothing picked in the outfit column: the prompt is left exactly as it was
-            return (combined,)
-        return (combine(combined, outfit, outfit_separator),)
+        if outfit:
+            combined = combine(combined, outfit, outfit_separator)
+        pose = build_pose(pose_selection, pose_mode, pose_pronoun, pose_lead)
+        if pose:
+            combined = combine(combined, pose, pose_separator)
+        return (combined,)
 
     @classmethod
     def IS_CHANGED(
@@ -88,12 +103,22 @@ class PromptManagerNode:
         outfit_pronoun="She",
         outfit_lead="",
         outfit_separator="space",
+        pose_selection="[]",
+        pose_mode="fixed",
+        pose_pronoun="She",
+        pose_lead="",
+        pose_separator="space",
     ):
         if mode in (MODE_RANDOM, MODE_SEQUENTIAL):
             return float("nan")
         if outfit_mode == "random" and outfit_selection not in ("", "[]"):
             return float("nan")
-        return f"{group_id}:{prompt_id}:{prompt_text}:{prefix}:{outfit_selection}:{outfit_pronoun}:{outfit_lead}:{outfit_separator}"
+        if pose_mode == "random" and pose_selection not in ("", "[]"):
+            return float("nan")
+        return (
+            f"{group_id}:{prompt_id}:{prompt_text}:{prefix}:{outfit_selection}:{outfit_pronoun}:{outfit_lead}:{outfit_separator}"
+            f":{pose_selection}:{pose_pronoun}:{pose_lead}:{pose_separator}"
+        )
 
 
 def _combine(prefix, text):

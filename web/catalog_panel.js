@@ -6,6 +6,46 @@ const CATEGORY_ORDER = [
     "Lingerie", "Sleepwear", "Sexy Costumes", "Uniforms", "Fantasy & Cosplay", "Traditional & Cultural",
     "Style Looks", "Outerwear", "Legwear", "Shoes", "Accessories",
 ];
+const POSE_ORDER = [
+    "Standing", "Sitting", "Lying Down", "Kneeling", "Crouching & Squatting", "Leaning", "Walking & Motion", "Dancing",
+    "Yoga & Stretching", "Action & Sports", "Sensual - Standing", "Sensual - Sitting", "Sensual - Lying",
+    "Sensual - Kneeling & Crawling", "Pin-Up & Boudoir", "Bedroom & Bed", "Sofa & Chairs", "Beach & Pool", "Urban & Street",
+    "Home & Windows", "Hands & Arms", "Sensual - Teasing Gestures", "Head & Gaze", "View & Angle",
+];
+const OUTFIT_CFG = {
+    key: "outfit",
+    base: "/outfit_builder",
+    noun: "piece",
+    nouns: "pieces",
+    order: CATEGORY_ORDER,
+    unknownRank: CATEGORY_ORDER.indexOf("Style Looks") + 0.5,
+    hasColor: true,
+    hasPlural: true,
+    conflicts: true,
+    pickHint: "Pick pieces below…",
+    emptyHint: "Nothing picked yet. Tap pieces below to build the outfit.",
+    randomHint: "Fixed: every picked piece. Random: one piece per category each run (📌 pinned pieces always stay).",
+    leadPlaceholder: "Start of the sentence (empty = automatic)",
+    textPlaceholder: "Text in the prompt (empty = name in lowercase)",
+    sepTitle: "How to join the outfit to the prompt",
+};
+const POSE_CFG = {
+    key: "pose",
+    base: "/pose_builder",
+    noun: "pose",
+    nouns: "poses",
+    order: POSE_ORDER,
+    unknownRank: POSE_ORDER.indexOf("Home & Windows") + 0.5,
+    hasColor: false,
+    hasPlural: false,
+    conflicts: false,
+    pickHint: "Pick poses below…",
+    emptyHint: "Nothing picked yet. Tap poses below; they are joined into one sentence.",
+    randomHint: "Fixed: every picked pose. Random: one pose per category each run (📌 pinned poses always stay).",
+    leadPlaceholder: "Start of the sentence, e.g. The model is (empty = automatic)",
+    textPlaceholder: "Text in the prompt, e.g. sitting with {poss} legs crossed (empty = name in lowercase)",
+    sepTitle: "How to join the pose to the prompt",
+};
 const FULL_BODY = new Set(["Dresses", "One-Pieces"]);
 const SPLIT_BODY = new Set(["Tops", "Bottoms"]);
 const PRONOUNS = ["She", "He", "They", "(none)"];
@@ -106,9 +146,9 @@ function el(tag, className, text) {
     return e;
 }
 
-function rank(category) {
-    const i = CATEGORY_ORDER.indexOf(category);
-    return i >= 0 ? i : CATEGORY_ORDER.indexOf("Style Looks") + 0.5;
+function rank(cfg, category) {
+    const i = cfg.order.indexOf(category);
+    return i >= 0 ? i : cfg.unknownRank;
 }
 
 async function call(method, path, body) {
@@ -132,13 +172,15 @@ async function call(method, path, body) {
  * { selection, mode, pronoun, lead, separator }. opts.onPreview(text, info) is called whenever the
  * sentence is (re)computed; opts.showOutput = false hides the sentence box.
  */
-export function createOutfitPanel(node, widgets, opts = {}) {
+function buildPanel(node, widgets, opts) {
+    const cfg = opts.cfg;
     const selectionWidget = widgets.selection;
     const modeWidget = widgets.mode;
     const pronounWidget = widgets.pronoun;
     const leadWidget = widgets.lead;
     const separatorWidget = widgets.separator;
     const AUTO_KEY = opts.autoKey || "autoResolve";
+    const ID = `${node.id}-${cfg.key}`;
     if (!node.properties) node.properties = {};
     if (node.properties[AUTO_KEY] === undefined) node.properties[AUTO_KEY] = false;
 
@@ -165,10 +207,10 @@ export function createOutfitPanel(node, widgets, opts = {}) {
 
     const root = el("div", "ob-root");
     const datalist = document.createElement("datalist");
-    datalist.id = `ob-colors-${node.id}`;
+    datalist.id = `ob-colors-${ID}`;
     for (const c of COLOR_HINTS) datalist.appendChild(Object.assign(document.createElement("option"), { value: c }));
     const catList = document.createElement("datalist");
-    catList.id = `ob-cats-${node.id}`;
+    catList.id = `ob-cats-${ID}`;
 
     // ---- top bar
     const topBar = el("div", "ob-bar");
@@ -176,7 +218,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
     pronounSel.title = "Who is wearing it";
     for (const p of PRONOUNS) pronounSel.appendChild(Object.assign(el("option", "", p), { value: p }));
     const modeSel = el("select", "ob-select");
-    modeSel.title = "Fixed: every picked piece. Random: one piece per category each run (📌 pinned pieces always stay).";
+    modeSel.title = cfg.randomHint;
     modeSel.appendChild(Object.assign(el("option", "", "Fixed"), { value: "fixed" }));
     modeSel.appendChild(Object.assign(el("option", "", "🎲 Random"), { value: "random" }));
     const optionsBtn = el("button", "ob-btn", "⚙ Options");
@@ -186,21 +228,22 @@ export function createOutfitPanel(node, widgets, opts = {}) {
 
     const options = el("div", "ob-options");
     const leadInput = el("input", "ob-input");
-    leadInput.placeholder = "Start of the sentence (empty = automatic)";
+    leadInput.placeholder = cfg.leadPlaceholder;
     leadInput.style.flex = "1";
     leadInput.style.minWidth = "180px";
     const sepSel = el("select", "ob-select");
-    sepSel.title = "How to join the outfit to the incoming prompt";
+    sepSel.title = cfg.sepTitle;
     for (const s of SEPARATORS) sepSel.appendChild(Object.assign(el("option", "", `Join: ${s}`), { value: s }));
     const autoLabel = el("label");
     const autoBox = document.createElement("input");
     autoBox.type = "checkbox";
     autoLabel.append(autoBox, document.createTextNode("Auto-resolve dress vs top/bottom"));
-    options.append(leadInput, sepSel, autoLabel);
+    options.append(leadInput, sepSel);
+    if (cfg.conflicts) options.append(autoLabel);
 
     const output = el("div", "ob-output");
     const outputTitle = el("div", "ob-output-title", "Output");
-    const outputText = el("div", "ob-output-text ob-empty", "Pick pieces below…");
+    const outputText = el("div", "ob-output-text ob-empty", cfg.pickHint);
     output.append(outputTitle, outputText);
 
     const warn = el("div", "ob-warn");
@@ -209,7 +252,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
     // ---- catalog
     const catBar = el("div", "ob-bar");
     const search = el("input", "ob-input");
-    search.placeholder = "Search pieces…";
+    search.placeholder = `Search ${cfg.nouns}…`;
     search.style.flex = "1";
     const editBtn = el("button", "ob-btn", "✎ Edit list");
     catBar.append(search, editBtn);
@@ -300,13 +343,13 @@ export function createOutfitPanel(node, widgets, opts = {}) {
         previewTimer = setTimeout(async () => {
             const seq = ++previewSeq;
             if (!state.selection.length) {
-                outputText.textContent = "Pick pieces below…";
+                outputText.textContent = cfg.pickHint;
                 outputText.classList.add("ob-empty");
                 if (opts.onPreview) opts.onPreview("", { random: modeWidget.value === "random", count: 0 });
                 return;
             }
             try {
-                const data = await call("POST", "/outfit_builder/preview", {
+                const data = await call("POST", `${cfg.base}/preview`, {
                     selection: state.selection,
                     mode: modeWidget.value,
                     pronoun: pronounWidget.value,
@@ -379,22 +422,17 @@ export function createOutfitPanel(node, widgets, opts = {}) {
         if (at >= 0) {
             state.selection.splice(at, 1);
         } else {
-            if (node.properties[AUTO_KEY]) {
+            if (cfg.conflicts && node.properties[AUTO_KEY]) {
                 if (FULL_BODY.has(item.category)) {
                     state.selection = state.selection.filter((e) => !FULL_BODY.has(e.category) && !SPLIT_BODY.has(e.category));
                 } else if (SPLIT_BODY.has(item.category)) {
                     state.selection = state.selection.filter((e) => !FULL_BODY.has(e.category));
                 }
             }
-            state.selection.push({
-                id: item.id,
-                name: item.name,
-                text: item.text,
-                plural: !!item.plural,
-                category: item.category,
-                color: "",
-                pin: false,
-            });
+            const entry = { id: item.id, name: item.name, text: item.text, category: item.category, pin: false };
+            if (cfg.hasPlural) entry.plural = !!item.plural;
+            if (cfg.hasColor) entry.color = "";
+            state.selection.push(entry);
         }
         commit();
         renderChips();
@@ -402,6 +440,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
     }
 
     function conflictMessage() {
+        if (!cfg.conflicts) return "";
         const full = state.selection.filter((e) => FULL_BODY.has(e.category)).length;
         const split = state.selection.filter((e) => SPLIT_BODY.has(e.category)).length;
         if (full > 1) return "⚠ More than one dress / one-piece is picked.";
@@ -412,21 +451,23 @@ export function createOutfitPanel(node, widgets, opts = {}) {
     function renderChips() {
         chips.textContent = "";
         const random = modeSel.value === "random";
-        const sorted = [...state.selection].sort((a, b) => rank(a.category) - rank(b.category));
-        if (!sorted.length) chips.appendChild(el("div", "ob-hint", "Nothing picked yet. Tap pieces below to build the outfit."));
+        const sorted = [...state.selection].sort((a, b) => rank(cfg, a.category) - rank(cfg, b.category));
+        if (!sorted.length) chips.appendChild(el("div", "ob-hint", cfg.emptyHint));
         for (const entry of sorted) {
             const chip = el("div", "ob-chip" + (random && entry.pin ? " ob-pinned" : ""));
             chip.title = entry.category;
             chip.appendChild(el("span", "ob-chip-name", entry.name));
-            const color = el("input", "ob-chip-color");
-            color.placeholder = "color / material";
-            color.setAttribute("list", datalist.id);
-            color.value = entry.color || "";
-            color.addEventListener("input", () => {
-                entry.color = color.value;
-                commit();
-            });
-            chip.appendChild(color);
+            if (cfg.hasColor) {
+                const color = el("input", "ob-chip-color");
+                color.placeholder = "color / material";
+                color.setAttribute("list", datalist.id);
+                color.value = entry.color || "";
+                color.addEventListener("input", () => {
+                    entry.color = color.value;
+                    commit();
+                });
+                chip.appendChild(color);
+            }
             if (random) {
                 const pin = el("span", "ob-chip-pin" + (entry.pin ? " ob-on" : ""), "📌");
                 pin.title = "Pinned: always included in random mode";
@@ -489,21 +530,21 @@ export function createOutfitPanel(node, widgets, opts = {}) {
         const f = state.form;
         const box = el("div", "ob-form");
         const name = el("input", "ob-input");
-        name.placeholder = "Name (e.g. Silk Robe)";
+        name.placeholder = cfg.hasPlural ? "Name (e.g. Silk Robe)" : "Name (e.g. Hands on Hips)";
         name.value = f.name;
         const category = el("input", "ob-input");
         category.placeholder = "Category";
         category.setAttribute("list", catList.id);
         category.value = f.category;
         const text = el("input", "ob-input");
-        text.placeholder = "Text in the prompt (empty = name in lowercase)";
+        text.placeholder = cfg.textPlaceholder;
         text.value = f.isNew ? f.text : f.text;
         text.style.minWidth = "220px";
         const plural = el("select", "ob-select");
         plural.title = "Plural pieces get no 'a/an' (jeans, boots…)";
         for (const [v, l] of [["auto", "Plural: auto"], ["no", "Singular"], ["yes", "Plural"]]) plural.appendChild(Object.assign(el("option", "", l), { value: v }));
         plural.value = f.isNew || f.plural === null ? "auto" : f.plural ? "yes" : "no";
-        const save = el("button", "ob-btn ob-primary", f.isNew ? "Add piece" : "Save");
+        const save = el("button", "ob-btn ob-primary", f.isNew ? `Add ${cfg.noun}` : "Save");
         const cancel = el("button", "ob-btn", "Cancel");
         cancel.addEventListener("click", () => {
             state.form = null;
@@ -521,8 +562,8 @@ export function createOutfitPanel(node, widgets, opts = {}) {
                 return;
             }
             try {
-                if (f.isNew) await call("POST", "/outfit_builder/items", body);
-                else await call("PUT", `/outfit_builder/items/${f.id}`, body);
+                if (f.isNew) await call("POST", `${cfg.base}/items`, body);
+                else await call("PUT", `${cfg.base}/items/${f.id}`, body);
                 state.form = null;
                 await loadCatalog();
             } catch (e) {
@@ -530,7 +571,9 @@ export function createOutfitPanel(node, widgets, opts = {}) {
             }
         });
         for (const field of [name, category, text]) field.addEventListener("keydown", (ev) => ev.stopPropagation());
-        box.append(name, category, text, plural, save, cancel);
+        box.append(name, category, text);
+        if (cfg.hasPlural) box.append(plural);
+        box.append(save, cancel);
         return box;
     }
 
@@ -541,15 +584,15 @@ export function createOutfitPanel(node, widgets, opts = {}) {
         if (state.edit && !state.form) {
             const bar = el("div", "ob-bar");
             bar.style.width = "100%";
-            const add = el("button", "ob-btn ob-primary", "＋ New piece");
+            const add = el("button", "ob-btn ob-primary", `＋ New ${cfg.noun}`);
             add.addEventListener("click", () => openForm(null));
             const restore = el("button", "ob-btn", "↺ Restore missing defaults");
-            restore.title = "Adds back shipped pieces you deleted. Your own pieces and edits stay.";
+            restore.title = `Adds back shipped ${cfg.nouns} you deleted. Your own ${cfg.nouns} and edits stay.`;
             restore.addEventListener("click", async () => {
                 try {
-                    const data = await call("POST", "/outfit_builder/restore");
+                    const data = await call("POST", `${cfg.base}/restore`);
                     state.items = data.items;
-                    flash(data.added ? `${data.added} piece(s) restored.` : "Nothing was missing.");
+                    flash(data.added ? `${data.added} ${cfg.noun}(s) restored.` : "Nothing was missing.");
                     renderCats();
                     renderGrid();
                 } catch (e) {
@@ -564,25 +607,25 @@ export function createOutfitPanel(node, widgets, opts = {}) {
         const shown = state.items.filter(
             (i) => (state.category === "All" || i.category === state.category) && (!q || `${i.name} ${i.text} ${i.category}`.toLowerCase().includes(q))
         );
-        if (!shown.length) grid.appendChild(el("div", "ob-hint", "No pieces match."));
+        if (!shown.length) grid.appendChild(el("div", "ob-hint", `No ${cfg.nouns} match.`));
         for (const item of shown) {
             const cell = el("div", "ob-item" + (isSelected(item.id) ? " ob-selected" : ""));
             cell.appendChild(el("span", "", item.name));
             if (state.category === "All") cell.appendChild(el("span", "ob-item-cat", item.category));
             if (state.edit) {
                 const pen = el("span", "ob-item-act", "✎");
-                pen.title = "Edit this piece";
+                pen.title = `Edit this ${cfg.noun}`;
                 pen.addEventListener("click", (ev) => {
                     ev.stopPropagation();
                     openForm(item);
                 });
                 const del = el("span", "ob-item-act ob-item-del", "✕");
-                del.title = "Delete this piece from the list";
+                del.title = `Delete this ${cfg.noun} from the list`;
                 del.addEventListener("click", async (ev) => {
                     ev.stopPropagation();
                     if (!(await confirmBox(`Delete "${item.name}" from the list?`))) return;
                     try {
-                        await call("DELETE", `/outfit_builder/items/${item.id}`);
+                        await call("DELETE", `${cfg.base}/items/${item.id}`);
                         await loadCatalog();
                     } catch (e) {
                         flash(e.message);
@@ -598,7 +641,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
 
     async function loadCatalog() {
         try {
-            state.items = (await call("GET", "/outfit_builder/catalog")).items;
+            state.items = (await call("GET", `${cfg.base}/catalog`)).items;
         } catch (e) {
             flash("Could not load the list: " + e.message);
         }
@@ -620,7 +663,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
     // ---- presets
     presetsBtn.addEventListener("click", async () => {
         try {
-            state.presets = await call("GET", "/outfit_builder/presets");
+            state.presets = await call("GET", `${cfg.base}/presets`);
         } catch (e) {
             flash(e.message);
         }
@@ -652,7 +695,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
                     const title = await askText("Rename preset", preset.title);
                     if (!title) return;
                     try {
-                        preset.title = (await call("PUT", `/outfit_builder/presets/${preset.id}`, { title })).title;
+                        preset.title = (await call("PUT", `${cfg.base}/presets/${preset.id}`, { title })).title;
                     } catch (e) {
                         flash(e.message);
                     }
@@ -660,10 +703,10 @@ export function createOutfitPanel(node, widgets, opts = {}) {
                 });
                 update.addEventListener("click", async (ev) => {
                     ev.stopPropagation();
-                    if (!state.selection.length) return flash("Pick some pieces first.");
+                    if (!state.selection.length) return flash(`Pick some ${cfg.nouns} first.`);
                     if (!(await confirmBox(`Replace "${preset.title}" with the current outfit?`))) return;
                     try {
-                        preset.selection = (await call("PUT", `/outfit_builder/presets/${preset.id}`, { selection: state.selection })).selection;
+                        preset.selection = (await call("PUT", `${cfg.base}/presets/${preset.id}`, { selection: state.selection })).selection;
                     } catch (e) {
                         flash(e.message);
                     }
@@ -673,7 +716,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
                     ev.stopPropagation();
                     if (!(await confirmBox(`Delete preset "${preset.title}"?`))) return;
                     try {
-                        await call("DELETE", `/outfit_builder/presets/${preset.id}`);
+                        await call("DELETE", `${cfg.base}/presets/${preset.id}`);
                         state.presets = state.presets.filter((p) => p.id !== preset.id);
                     } catch (e) {
                         flash(e.message);
@@ -691,7 +734,7 @@ export function createOutfitPanel(node, widgets, opts = {}) {
                 const title = await askText("Name this outfit", "", "e.g. Beach day");
                 if (!title) return;
                 try {
-                    state.presets.push(await call("POST", "/outfit_builder/presets", { title, selection: state.selection }));
+                    state.presets.push(await call("POST", `${cfg.base}/presets`, { title, selection: state.selection }));
                 } catch (e) {
                     flash(e.message);
                 }
@@ -720,4 +763,12 @@ export function createOutfitPanel(node, widgets, opts = {}) {
     loadCatalog();
     schedulePreview();
     return { root, refresh };
+}
+
+export function createOutfitPanel(node, widgets, opts = {}) {
+    return buildPanel(node, widgets, { ...opts, cfg: OUTFIT_CFG });
+}
+
+export function createPosePanel(node, widgets, opts = {}) {
+    return buildPanel(node, widgets, { ...opts, cfg: POSE_CFG });
 }

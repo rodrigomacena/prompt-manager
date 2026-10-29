@@ -67,10 +67,10 @@ Images are stored under `user/ImageMonitor/<channel>/`.
 
 ## Outfit Builder (inside the Prompt Manager)
 
-The **Prompt Manager** has an **Outfit Builder** column between the prompt list and the **Prompt** box. It builds the clothing part of the prompt from a catalog of pieces and appends it to the output as a sentence such as `She is wearing a red satin mini dress, high heels and a gold pendant necklace.`
+The **Prompt Manager** has an **Outfit Builder** column (and, next to it, a **Pose Builder** column, see below) between the prompt list and the **Prompt** box. It builds the clothing part of the prompt from a catalog of pieces and appends it to the output as a sentence such as `She is wearing a red satin mini dress, high heels and a gold pendant necklace.`
 
 - **Nothing picked = nothing changes**: with no piece selected the node's output is exactly what it was before (prefix + prompt). The outfit is only added when you pick something.
-- **The Prompt box shows the whole thing**: two coloured bands sit above the editable text: the blue **Prefix** (when there is one) and the orange **Outfit** sentence (when there is one), so you see what is going to be sent. Only the middle text is editable and is what "Save prompt" saves. Typing in the prefix or changing the outfit updates the box live.
+- **The Prompt box shows the whole thing**: coloured bands sit above the editable text: the blue **Prefix**, the orange **Outfit** sentence and the pink **Pose** sentence (each only when there is one), so you see what is going to be sent. Only the middle text is editable and is what "Save prompt" saves. Typing in the prefix or changing the outfit updates the box live.
 - **Pick pieces**: tap pieces to toggle them (the catalog ships with ~1,100 pieces in 18 categories: Swimwear, Dresses, One-Pieces, Tops, Bottoms, Outerwear, Activewear, Lingerie, Sleepwear, Shoes, Accessories, Sexy Costumes, Legwear, Formal & Business, Traditional & Cultural, Fantasy & Cosplay, Uniforms and Style Looks — whole-outfit styles such as "Y2K outfit"). Use the search box and the category tabs; picked pieces show as chips above the list.
 - **Color / material**: every chip has a small field ("red satin", "black lace", "gold"…) placed before the piece name. "a / an" is handled automatically and plural pieces (jeans, boots, earrings…) get no article.
 - **Sentence order** is fixed (body, layers, shoes, accessories) so the text always reads naturally, whatever order you picked in.
@@ -80,6 +80,17 @@ The **Prompt Manager** has an **Outfit Builder** column between the prompt list 
 - **✎ Edit list**: add your own pieces (name, category, optional prompt text and singular/plural), edit or delete pieces. New pieces added by an update show up by themselves (a piece you deleted is not added back); **↺ Restore missing defaults** brings back shipped pieces you deleted without touching your own. The list lives in `user/PromptManager/outfit_builder.json` (not in the repository), so it can differ per server.
 - Optional **Auto-resolve dress vs top/bottom** (⚙ Options): picking a dress or one-piece removes tops and bottoms (and the other way round); when off, a warning is shown instead.
 - The selection, mode, pronoun and options are saved with the workflow. Workflows made before this column existed keep working; the node is widened automatically to fit it.
+
+## Pose Builder (inside the Prompt Manager)
+
+Right of the Outfit Builder there is a **Pose Builder** column with the same workflow, for describing how the model is posed. It ships with ~1,050 poses in 24 categories: **Standing**, **Sitting**, **Lying Down**, **Kneeling**, **Crouching & Squatting**, **Leaning**, **Walking & Motion**, **Dancing**, **Yoga & Stretching**, **Action & Sports**, the glamour / boudoir sets **Sensual - Standing / Sitting / Lying / Kneeling & Crawling / Teasing Gestures** and **Pin-Up & Boudoir** (suggestive, never explicit), settings and props (**Bedroom & Bed**, **Sofa & Chairs**, **Beach & Pool**, **Urban & Street**, **Home & Windows**) and the modifiers **Hands & Arms**, **Head & Gaze** and **View & Angle**.
+
+- **Nothing picked = nothing changes**, exactly like the outfit: the output is only extended when you pick a pose.
+- **Poses chain into one sentence**: pick a posture and add modifiers, e.g. *Hands on Hips* + *Looking Over Shoulder* + *Smiling* gives `She is standing with her hands on her hips, looking over her shoulder and smiling.` The order in the sentence is fixed (posture, setting, hands, gaze, camera view) whatever the order you click in, and she / he / they / (none) changes the pronouns ("her / his / their / the").
+- **Prompt box**: a pink **Pose** band shows the sentence above the editable text (after the Prefix and Outfit bands). In 🎲 Random mode it shows a preview.
+- **🎲 Random mode** uses one pose per category from what you picked each run, and 📌 pinned poses always stay. Handy for batches: pick 20 sensual poses and a few gaze modifiers and let every run draw a different combination.
+- **Search, category tabs, 💾 Presets and ✎ Edit list** work as in the Outfit Builder; your own poses use `{poss}` where the possessive goes (e.g. `sitting with {poss} legs crossed`). New poses shipped by an update appear by themselves (a pose you deleted is not added back); **↺ Restore missing defaults** brings back deleted ones. The list and presets live in `user/PromptManager/pose_builder.json` (not in the repository), so they can differ per server.
+- **⚙ Options**: replace the start of the sentence ("The model is") and choose how it is joined to the prompt (space or new paragraph).
 
 ## Installation
 

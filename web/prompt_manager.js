@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { createOutfitPanel, injectOutfitStyles } from "./outfit_panel.js";
+import { createOutfitPanel, createPosePanel, injectOutfitStyles } from "./catalog_panel.js";
 
 const NODE_NAME = "PromptManager";
 
@@ -272,6 +272,12 @@ const CSS_TEXT = `
     background: rgba(59, 139, 255, 0.28);
 }
 .pm-seg .pm-seg-label { color: #9cc6ff; }
+.pm-seg.pm-seg-pose {
+    border-color: #ff4fa3;
+    border-left-color: #ff4fa3;
+    background: rgba(255, 79, 163, 0.28);
+}
+.pm-seg.pm-seg-pose .pm-seg-label { color: #ffb3d6; }
 .pm-seg.pm-seg-outfit {
     border-color: #ff9f1c;
     border-left-color: #ff9f1c;
@@ -799,7 +805,7 @@ function hideWidget(node, widget) {
     widget.options.surfaces = { canvas: "never", vueNode: "never", panel: "never" };
 }
 
-const MIN_NODE_WIDTH = 1300;
+const MIN_NODE_WIDTH = 1650;
 
 function setupPromptManagerWidget(node) {
     const modeWidget = node.widgets.find((w) => w.name === "mode");
@@ -818,6 +824,15 @@ function setupPromptManagerWidget(node) {
     };
     const hasOutfit = Object.values(outfitWidgets).every(Boolean);
     if (hasOutfit) Object.values(outfitWidgets).forEach((w) => hideWidget(node, w));
+    const poseWidgets = {
+        selection: node.widgets.find((w) => w.name === "pose_selection"),
+        mode: node.widgets.find((w) => w.name === "pose_mode"),
+        pronoun: node.widgets.find((w) => w.name === "pose_pronoun"),
+        lead: node.widgets.find((w) => w.name === "pose_lead"),
+        separator: node.widgets.find((w) => w.name === "pose_separator"),
+    };
+    const hasPose = Object.values(poseWidgets).every(Boolean);
+    if (hasPose) Object.values(poseWidgets).forEach((w) => hideWidget(node, w));
 
     if (!node.properties) node.properties = {};
     if (node.properties.enrichInstructions === undefined) node.properties.enrichInstructions = "";
@@ -845,6 +860,8 @@ function setupPromptManagerWidget(node) {
         previewOverride: null,
         outfitText: "",
         outfitRandom: false,
+        poseText: "",
+        poseRandom: false,
         segs: null,
         img2prompt: {
             imageDataUrl: null,
@@ -870,6 +887,9 @@ function setupPromptManagerWidget(node) {
         segs.outfit.style.display = state.outfitText ? "" : "none";
         segs.outfitText.textContent = state.outfitText;
         segs.outfitLabel.textContent = state.outfitRandom ? "Outfit 🎲 — random pick at every run (this is a preview)" : "Outfit";
+        segs.pose.style.display = state.poseText ? "" : "none";
+        segs.poseText.textContent = state.poseText;
+        segs.poseLabel.textContent = state.poseRandom ? "Pose 🎲 — random pick at every run (this is a preview)" : "Pose";
     }
 
     let outfitPanel = null;
@@ -887,6 +907,23 @@ function setupPromptManagerWidget(node) {
             },
         });
         outfitColumn.appendChild(outfitPanel.root);
+    }
+
+    let posePanel = null;
+    const poseColumn = el("div", "pm-outfit pm-pose");
+    if (hasPose) {
+        injectOutfitStyles();
+        poseColumn.appendChild(el("div", "pm-preview-title", "Pose Builder"));
+        posePanel = createPosePanel(node, poseWidgets, {
+            autoKey: "poseAutoResolve",
+            showOutput: false,
+            onPreview: (text, info) => {
+                state.poseText = text;
+                state.poseRandom = info.random;
+                updateSegments();
+            },
+        });
+        poseColumn.appendChild(posePanel.root);
     }
 
     function showModal({ message, defaultValue, mode }) {
@@ -1344,6 +1381,7 @@ function setupPromptManagerWidget(node) {
         state.img2prompt.instructions = node.properties.img2promptInstructions || "";
         render();
         if (outfitPanel) outfitPanel.refresh();
+        if (posePanel) posePanel.refresh();
     }
     node._pmRefreshFromWidgets = refreshFromWidgets;
 
@@ -2030,11 +2068,16 @@ function setupPromptManagerWidget(node) {
         const outfitLabel = el("div", "pm-seg-label", "Outfit");
         const outfitText = el("div", "pm-seg-text");
         outfitSeg.append(outfitLabel, outfitText);
-        state.segs = { prefix: prefixSeg, prefixText, outfit: outfitSeg, outfitText, outfitLabel };
+        const poseSeg = el("div", "pm-seg pm-seg-pose");
+        const poseLabel = el("div", "pm-seg-label", "Pose");
+        const poseText = el("div", "pm-seg-text");
+        poseSeg.append(poseLabel, poseText);
+        state.segs = { prefix: prefixSeg, prefixText, outfit: outfitSeg, outfitText, outfitLabel, pose: poseSeg, poseText, poseLabel };
         updateSegments();
 
         preview.appendChild(prefixSeg);
         preview.appendChild(outfitSeg);
+        preview.appendChild(poseSeg);
         preview.appendChild(textarea);
         preview.appendChild(badge);
         preview.appendChild(replaceBtn);
@@ -2285,6 +2328,7 @@ function setupPromptManagerWidget(node) {
         }
         main.appendChild(content);
         if (hasOutfit) main.appendChild(outfitColumn);
+        if (hasPose) main.appendChild(poseColumn);
         main.appendChild(renderRightPanel(group, selectedPrompt));
 
         body.appendChild(main);
