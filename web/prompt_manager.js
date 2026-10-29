@@ -265,15 +265,21 @@ const CSS_TEXT = `
     flex-shrink: 0;
     max-height: 30%;
     overflow-y: auto;
-    border: 1px dashed var(--border-color, #555);
-    border-left: 3px solid #5b8dee;
+    border: 1px solid #3b8bff;
+    border-left: 5px solid #3b8bff;
     border-radius: 4px;
-    padding: 4px 6px;
-    background: rgba(255,255,255,0.03);
+    padding: 5px 8px 6px;
+    background: rgba(59, 139, 255, 0.28);
 }
-.pm-seg.pm-seg-outfit { border-left-color: #c9811a; }
-.pm-seg-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--descrip-text, #888); }
-.pm-seg-text { font-size: 11px; line-height: 1.45; color: var(--descrip-text, #aaa); white-space: pre-wrap; word-break: break-word; }
+.pm-seg .pm-seg-label { color: #9cc6ff; }
+.pm-seg.pm-seg-outfit {
+    border-color: #ff9f1c;
+    border-left-color: #ff9f1c;
+    background: rgba(255, 159, 28, 0.28);
+}
+.pm-seg.pm-seg-outfit .pm-seg-label { color: #ffd08a; }
+.pm-seg-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+.pm-seg-text { font-size: 12px; line-height: 1.45; color: #fff; white-space: pre-wrap; word-break: break-word; }
 .pm-preview-box {
     flex: 1;
     min-height: 60px;
@@ -2028,8 +2034,8 @@ function setupPromptManagerWidget(node) {
         updateSegments();
 
         preview.appendChild(prefixSeg);
-        preview.appendChild(textarea);
         preview.appendChild(outfitSeg);
+        preview.appendChild(textarea);
         preview.appendChild(badge);
         preview.appendChild(replaceBtn);
         right.appendChild(preview);
