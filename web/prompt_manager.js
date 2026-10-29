@@ -247,6 +247,24 @@ const CSS_TEXT = `
     padding: 6px;
     background: rgba(0,0,0,0.15);
 }
+.pm-outfit-head { display: flex; align-items: center; gap: 6px; }
+.pm-outfit-head .pm-preview-title { flex: 1; }
+.pm-colbtn {
+    background: var(--comfy-input-bg, #2a2a2a); color: var(--input-text, #ddd); border: 1px solid var(--border-color, #444);
+    border-radius: 4px; padding: 0 7px; cursor: pointer; font-size: 12px; line-height: 20px; flex-shrink: 0;
+}
+.pm-colbtn:hover { border-color: #7a7a7a; }
+.pm-colcount { display: none; background: #2f6fd8; color: #fff; border-radius: 9px; font-size: 10px; min-width: 18px; text-align: center; padding: 0 5px; }
+.pm-outfit.pm-has-picks .pm-colcount { display: block; }
+.pm-outfit.pm-collapsed, .pm-img2prompt.pm-collapsed {
+    flex: 0 0 40px; width: 40px; min-width: 40px; max-width: 40px; padding: 5px 4px; align-items: center; cursor: pointer; overflow: hidden;
+}
+.pm-outfit.pm-collapsed .ob-root { display: none; }
+.pm-outfit.pm-collapsed .pm-outfit-head, .pm-img2prompt.pm-collapsed .pm-outfit-head { flex-direction: column; gap: 8px; }
+.pm-outfit.pm-collapsed .pm-colcount { order: 1; }
+.pm-outfit.pm-collapsed .pm-preview-title, .pm-img2prompt.pm-collapsed .pm-preview-title {
+    order: 2; flex: initial; writing-mode: vertical-rl; white-space: nowrap; font-size: 11px;
+}
 .pm-outfit {
     overflow-anchor: none;
     flex: 1.1;
@@ -817,7 +835,10 @@ function hideWidget(node, widget) {
     widget.options.surfaces = { canvas: "never", vueNode: "never", panel: "never" };
 }
 
-const MIN_NODE_WIDTH = 2350;
+const BASE_WIDTH = 920; // the three fixed columns (Image to prompt, Prompt Manager, Prompt)
+const COLUMN_WIDTH = 357;
+const STRIP_WIDTH = 40;
+const IMG_COLUMN_GAIN = 260; // width given back when the Image to prompt column is collapsed
 
 // The picker columns between the prompt list and the Prompt box. Each one stores its choice in hidden widgets named
 // <prefix>selection / mode / lead / separator (and pronoun when it has one) and adds a coloured band to the Prompt box.
@@ -902,18 +923,60 @@ function setupPromptManagerWidget(node) {
 
     for (const c of catalogs) {
         injectOutfitStyles();
-        c.column.appendChild(el("div", "pm-preview-title", c.def.title));
+        const head = el("div", "pm-outfit-head");
+        c.toggle = el("button", "pm-colbtn", "◂");
+        c.toggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            setCollapsed(c.def.key, !isCollapsed(c.def.key));
+        });
+        c.badge = el("span", "pm-colcount", "0");
+        head.append(c.toggle, el("div", "pm-preview-title", c.def.title), c.badge);
+        c.column.appendChild(head);
+        c.column.addEventListener("click", () => {
+            if (isCollapsed(c.def.key)) setCollapsed(c.def.key, false);
+        });
         c.panel = c.def.create(node, c.widgets, {
             autoKey: c.def.key + "AutoResolve",
             showOutput: false,
             onPreview: (text, info) => {
                 c.text = text;
                 c.random = info.random;
+                c.badge.textContent = String(info.count);
+                c.column.classList.toggle("pm-has-picks", info.count > 0);
                 updateSegments();
             },
         });
         c.column.appendChild(c.panel.root);
     }
+
+    // ---- collapsible columns: a collapsed column becomes a thin strip and the node gives the space back
+    const isCollapsed = (key) => !!(node.properties.pmCollapsed && node.properties.pmCollapsed[key]);
+    function minNodeWidth() {
+        let w = BASE_WIDTH - (isCollapsed("img") ? IMG_COLUMN_GAIN : 0);
+        for (const c of catalogs) w += isCollapsed(c.def.key) ? STRIP_WIDTH : COLUMN_WIDTH;
+        return w;
+    }
+    node._pmMinWidth = minNodeWidth;
+    function applyCollapsed() {
+        for (const c of catalogs) {
+            const on = isCollapsed(c.def.key);
+            c.column.classList.toggle("pm-collapsed", on);
+            c.toggle.textContent = on ? "▸" : "◂";
+            c.toggle.title = on ? "Expand this column" : "Collapse this column";
+        }
+    }
+    function setCollapsed(key, value) {
+        if (isCollapsed(key) === value) return;
+        node.properties.pmCollapsed = { ...(node.properties.pmCollapsed || {}), [key]: value };
+        const delta = key === "img" ? IMG_COLUMN_GAIN : COLUMN_WIDTH - STRIP_WIDTH;
+        const width = Math.max(BASE_WIDTH - IMG_COLUMN_GAIN, node.size[0] + (value ? -delta : delta));
+        if (node.setSize) node.setSize([width, node.size[1]]);
+        else node.size[0] = width;
+        if (key === "img") render();
+        else applyCollapsed();
+        if (app.canvas) app.canvas.setDirty(true, true);
+    }
+    applyCollapsed();
 
     function showModal({ message, defaultValue, mode }) {
         return new Promise((resolve) => {
@@ -1369,6 +1432,7 @@ function setupPromptManagerWidget(node) {
         state.img2prompt.model = node.properties.img2promptModel || DEFAULT_VISION_MODEL;
         state.img2prompt.instructions = node.properties.img2promptInstructions || "";
         render();
+        applyCollapsed();
         catalogs.forEach((c) => c.panel && c.panel.refresh());
     }
     node._pmRefreshFromWidgets = refreshFromWidgets;
@@ -1938,7 +2002,20 @@ function setupPromptManagerWidget(node) {
     function renderImageToPromptPanel() {
         const img = state.img2prompt;
         const panel = el("div", "pm-img2prompt");
-        panel.appendChild(el("div", "pm-preview-title", "Image to prompt"));
+        const imgHead = el("div", "pm-outfit-head");
+        const imgToggle = el("button", "pm-colbtn", isCollapsed("img") ? "▸" : "◂");
+        imgToggle.title = isCollapsed("img") ? "Expand this column" : "Collapse this column";
+        imgToggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            setCollapsed("img", !isCollapsed("img"));
+        });
+        imgHead.append(imgToggle, el("div", "pm-preview-title", "Image to prompt"));
+        panel.appendChild(imgHead);
+        if (isCollapsed("img")) {
+            panel.classList.add("pm-collapsed");
+            panel.addEventListener("click", () => setCollapsed("img", false));
+            return panel;
+        }
 
         const preview = el("div", "pm-img2prompt-preview");
         if (img.imageDataUrl) {
@@ -2360,7 +2437,7 @@ function setupPromptManagerWidget(node) {
         hideOnZoom: false,
     });
 
-    if (node.size[0] < MIN_NODE_WIDTH) node.size[0] = MIN_NODE_WIDTH;
+    if (node.size[0] < minNodeWidth()) node.size[0] = minNodeWidth();
     if (node.size[1] < 560) node.size[1] = 560;
 
     syncWidgets();
@@ -2387,7 +2464,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure ? onConfigure.apply(this, arguments) : undefined;
             if (this._pmRefreshFromWidgets) this._pmRefreshFromWidgets();
-            if (this.size && this.size[0] < MIN_NODE_WIDTH) this.size[0] = MIN_NODE_WIDTH;
+            if (this.size && this._pmMinWidth && this.size[0] < this._pmMinWidth()) this.size[0] = this._pmMinWidth();
             return result;
         };
     },

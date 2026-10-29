@@ -151,7 +151,9 @@ const CSS_TEXT = `
 .ob-chip-pin { opacity: 0.55; }
 .ob-chip-pin.ob-on { opacity: 1; }
 .ob-hint { color: var(--descrip-text, #888); font-size: 11px; padding: 3px 2px; }
-.ob-cats { display: flex; flex-wrap: wrap; gap: 4px; }
+.ob-cats { display: flex; align-items: center; gap: 4px; }
+.ob-catselect { flex: 1; min-width: 0; }
+.ob-catstep { padding: 3px 9px; }
 .ob-cat { padding: 2px 9px; border-radius: 12px; border: 1px solid var(--border-color, #4a4a4a); cursor: pointer; font-size: 11px; background: var(--comfy-input-bg, #2d2d2d); }
 .ob-cat:hover { border-color: #7a7a7a; }
 .ob-cat.ob-active { background: var(--p-primary-color, #5b8dee); border-color: var(--p-primary-color, #5b8dee); color: #fff; }
@@ -307,6 +309,13 @@ function buildPanel(node, widgets, opts) {
     const editBtn = el("button", "ob-btn", "✎ Edit list");
     catBar.append(search, editBtn);
     const cats = el("div", "ob-cats");
+    const catPrev = el("button", "ob-btn ob-catstep", "◀");
+    catPrev.title = "Previous category";
+    const catNext = el("button", "ob-btn ob-catstep", "▶");
+    catNext.title = "Next category";
+    const catSelect = el("select", "ob-select ob-catselect");
+    catSelect.title = "Category (● marks the ones with something picked)";
+    cats.append(catPrev, catSelect, catNext);
     const status = el("div", "ob-status");
     const grid = el("div", "ob-grid");
 
@@ -499,6 +508,7 @@ function buildPanel(node, widgets, opts) {
     }
 
     function renderChips() {
+        renderCats();
         chips.textContent = "";
         const random = modeSel.value === "random";
         const sorted = [...state.selection].sort((a, b) => rank(cfg, a.category) - rank(cfg, b.category));
@@ -552,24 +562,36 @@ function buildPanel(node, widgets, opts) {
     }
 
     function renderCats() {
-        cats.textContent = "";
         catList.textContent = "";
         const all = categories();
         for (const c of all) catList.appendChild(Object.assign(document.createElement("option"), { value: c }));
-        const make = (label, value, count) => {
-            const b = el("span", "ob-cat" + (state.category === value ? " ob-active" : ""), label);
-            b.appendChild(el("span", "ob-cat-n", String(count)));
-            b.addEventListener("click", () => {
-                state.category = value;
-                renderCats();
-                renderGrid();
-            });
-            cats.appendChild(b);
-        };
-        make("All", "All", state.items.length);
-        for (const c of all) make(c, c, state.items.filter((i) => i.category === c).length);
         if (state.category !== "All" && !all.includes(state.category)) state.category = "All";
+        const picked = new Map();
+        for (const e of state.selection) picked.set(e.category, (picked.get(e.category) || 0) + 1);
+        catSelect.textContent = "";
+        const add = (value, label) => catSelect.appendChild(Object.assign(el("option", "", label), { value }));
+        add("All", `All · ${state.items.length}${state.selection.length ? ` (${state.selection.length} picked)` : ""}`);
+        for (const c of all) {
+            const n = picked.get(c) || 0;
+            add(c, `${n ? "● " : ""}${c} · ${state.items.filter((i) => i.category === c).length}${n ? ` (${n} picked)` : ""}`);
+        }
+        catSelect.value = state.category;
     }
+
+    function stepCategory(delta) {
+        const list = ["All", ...categories()];
+        const i = list.indexOf(state.category);
+        state.category = list[(i + delta + list.length) % list.length];
+        renderCats();
+        renderGrid();
+    }
+    catSelect.addEventListener("change", () => {
+        state.category = catSelect.value;
+        renderCats();
+        renderGrid();
+    });
+    catPrev.addEventListener("click", () => stepCategory(-1));
+    catNext.addEventListener("click", () => stepCategory(1));
 
     function openForm(item) {
         state.form = item ? { ...item, isNew: false } : { id: "", name: "", category: state.category === "All" ? "" : state.category, text: "", plural: null, isNew: true };
