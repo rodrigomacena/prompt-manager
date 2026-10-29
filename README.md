@@ -65,19 +65,21 @@ Widgets: `channel` (a name, so several monitors can each follow their own node),
 
 Images are stored under `user/ImageMonitor/<channel>/`.
 
-## Outfit Builder node
+## Outfit Builder (inside the Prompt Manager)
 
-A fifth node, **Outfit Builder** (category `utils/prompt`), builds the clothing part of a prompt from a catalog of pieces and outputs a ready sentence such as `She is wearing a red satin mini dress, high heels and a gold pendant necklace.`
+The **Prompt Manager** has an **Outfit Builder** column between the prompt list and the **Prompt** box. It builds the clothing part of the prompt from a catalog of pieces and appends it to the output as a sentence such as `She is wearing a red satin mini dress, high heels and a gold pendant necklace.`
 
-- **Pick pieces**: tap pieces to toggle them (the catalog ships with ~1,100 pieces in 18 categories: Swimwear, Dresses, One-Pieces, Tops, Bottoms, Outerwear, Activewear, Lingerie, Sleepwear, Shoes, Accessories, Sexy Costumes, Legwear, Formal & Business, Traditional & Cultural, Fantasy & Cosplay, Uniforms and Style Looks (whole-outfit styles such as "Y2K outfit")). Use the search box and the category tabs to find them. Picked pieces show as chips above the list.
-- **Color / material**: every chip has a small field ("red satin", "black lace", "gold"…) that is placed before the piece name. "a / an" is handled automatically and plural pieces (jeans, boots, earrings…) get no article.
+- **Nothing picked = nothing changes**: with no piece selected the node's output is exactly what it was before (prefix + prompt). The outfit is only added when you pick something.
+- **The Prompt box shows the whole thing**: above the editable text it shows the **Prefix** (when there is one) and below it the **Outfit** sentence (when there is one), so you see what is going to be sent. Only the middle text is editable and is what "Save prompt" saves. Typing in the prefix or changing the outfit updates the box live.
+- **Pick pieces**: tap pieces to toggle them (the catalog ships with ~1,100 pieces in 18 categories: Swimwear, Dresses, One-Pieces, Tops, Bottoms, Outerwear, Activewear, Lingerie, Sleepwear, Shoes, Accessories, Sexy Costumes, Legwear, Formal & Business, Traditional & Cultural, Fantasy & Cosplay, Uniforms and Style Looks — whole-outfit styles such as "Y2K outfit"). Use the search box and the category tabs; picked pieces show as chips above the list.
+- **Color / material**: every chip has a small field ("red satin", "black lace", "gold"…) placed before the piece name. "a / an" is handled automatically and plural pieces (jeans, boots, earrings…) get no article.
 - **Sentence order** is fixed (body, layers, shoes, accessories) so the text always reads naturally, whatever order you picked in.
-- **Who**: the first dropdown selects She / He / They / (none, just "Wearing …"). **⚙ Options** has a field to replace the start of the sentence ("The model is wearing") and how to join it to the incoming prompt (**space**, adding a full stop if missing, or **new paragraph**).
-- **Outputs**: `outfit` (only the sentence) and `combined` (the optional `prompt` input followed by the outfit, ready to feed a text encoder).
-- **🎲 Random mode**: instead of using every picked piece, each run uses **one piece per category** from what you picked; 📌 pinned chips are always included. Great for batches of variations.
+- **Who**: the first dropdown selects She / He / They / (none, just "Wearing …"). **⚙ Options** has a field to replace the start of the sentence ("The model is wearing") and how to join the outfit to the prompt (**space**, adding a full stop if the prompt has none, or **new paragraph**).
+- **🎲 Random mode**: instead of using every picked piece, each run uses **one piece per category** from what you picked; 📌 pinned chips are always included. Great for batches of variations (the Prompt box then labels the outfit as a preview).
 - **💾 Presets**: save the current outfit with a title, load it with one click, rename (✎), replace with the current outfit (⟳) or delete (✕). Presets are saved on the server.
 - **✎ Edit list**: add your own pieces (name, category, optional prompt text and singular/plural), edit or delete pieces. New pieces added by an update show up by themselves (a piece you deleted is not added back); **↺ Restore missing defaults** brings back shipped pieces you deleted without touching your own. The list lives in `user/PromptManager/outfit_builder.json` (not in the repository), so it can differ per server.
 - Optional **Auto-resolve dress vs top/bottom** (⚙ Options): picking a dress or one-piece removes tops and bottoms (and the other way round); when off, a warning is shown instead.
+- The selection, mode, pronoun and options are saved with the workflow. Workflows made before this column existed keep working; the node is widened automatically to fit it.
 
 ## Installation
 

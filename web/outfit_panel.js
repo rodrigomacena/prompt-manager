@@ -1,8 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const NODE_NAME = "OutfitBuilder";
-
 const CATEGORY_ORDER = [
     "Swimwear", "Dresses", "One-Pieces", "Formal & Business", "Tops", "Bottoms", "Activewear",
     "Lingerie", "Sleepwear", "Sexy Costumes", "Uniforms", "Fantasy & Cosplay", "Traditional & Cultural",
@@ -93,7 +91,7 @@ const CSS_TEXT = `
 `;
 
 let stylesInjected = false;
-function injectStyles() {
+export function injectOutfitStyles() {
     if (stylesInjected) return;
     const style = document.createElement("style");
     style.textContent = CSS_TEXT;
@@ -113,15 +111,6 @@ function rank(category) {
     return i >= 0 ? i : CATEGORY_ORDER.indexOf("Style Looks") + 0.5;
 }
 
-function hideWidget(widget) {
-    if (!widget) return;
-    widget.type = "hidden";
-    widget.computeSize = () => [0, -4];
-    widget.draw = () => {};
-    widget.options = widget.options || {};
-    widget.options.surfaces = { canvas: "never", vueNode: "never", panel: "never" };
-}
-
 async function call(method, path, body) {
     const res = await api.fetchApi(path, {
         method,
@@ -138,16 +127,20 @@ async function call(method, path, body) {
     return data;
 }
 
-function setupOutfitBuilder(node) {
-    const widgetOf = (name) => node.widgets.find((w) => w.name === name);
-    const selectionWidget = widgetOf("selection");
-    const modeWidget = widgetOf("mode");
-    const pronounWidget = widgetOf("pronoun");
-    const leadWidget = widgetOf("lead");
-    const separatorWidget = widgetOf("separator");
-    [selectionWidget, modeWidget, pronounWidget, leadWidget, separatorWidget].forEach(hideWidget);
+/**
+ * Builds the outfit picker. `widgets` are the host node's (hidden) widgets that hold the values:
+ * { selection, mode, pronoun, lead, separator }. opts.onPreview(text, info) is called whenever the
+ * sentence is (re)computed; opts.showOutput = false hides the sentence box.
+ */
+export function createOutfitPanel(node, widgets, opts = {}) {
+    const selectionWidget = widgets.selection;
+    const modeWidget = widgets.mode;
+    const pronounWidget = widgets.pronoun;
+    const leadWidget = widgets.lead;
+    const separatorWidget = widgets.separator;
+    const AUTO_KEY = opts.autoKey || "autoResolve";
     if (!node.properties) node.properties = {};
-    if (node.properties.autoResolve === undefined) node.properties.autoResolve = false;
+    if (node.properties[AUTO_KEY] === undefined) node.properties[AUTO_KEY] = false;
 
     const state = {
         items: [],
@@ -224,6 +217,7 @@ function setupOutfitBuilder(node) {
     const status = el("div", "ob-status");
     const grid = el("div", "ob-grid");
 
+    if (opts.showOutput === false) output.style.display = "none";
     root.append(datalist, catList, topBar, options, output, warn, chips, catBar, cats, status, grid);
 
     function flash(message) {
@@ -308,6 +302,7 @@ function setupOutfitBuilder(node) {
             if (!state.selection.length) {
                 outputText.textContent = "Pick pieces below…";
                 outputText.classList.add("ob-empty");
+                if (opts.onPreview) opts.onPreview("", { random: modeWidget.value === "random", count: 0 });
                 return;
             }
             try {
@@ -320,6 +315,7 @@ function setupOutfitBuilder(node) {
                 if (seq !== previewSeq) return;
                 outputText.textContent = data.outfit || "";
                 outputText.classList.toggle("ob-empty", !data.outfit);
+                if (opts.onPreview) opts.onPreview(data.outfit || "", { random: modeWidget.value === "random", count: state.selection.length });
             } catch (e) {
                 outputText.textContent = "Could not build the preview: " + e.message;
             }
@@ -337,7 +333,7 @@ function setupOutfitBuilder(node) {
         modeSel.value = modeWidget.value || "fixed";
         leadInput.value = leadWidget.value || "";
         sepSel.value = separatorWidget.value || "space";
-        autoBox.checked = node.properties.autoResolve === true;
+        autoBox.checked = node.properties[AUTO_KEY] === true;
         outputTitle.textContent = modeSel.value === "random" ? "Output (preview — random picks change at every run)" : "Output";
     }
 
@@ -360,7 +356,7 @@ function setupOutfitBuilder(node) {
         commit();
     });
     autoBox.addEventListener("change", () => {
-        node.properties.autoResolve = autoBox.checked;
+        node.properties[AUTO_KEY] = autoBox.checked;
         renderChips();
     });
     optionsBtn.addEventListener("click", () => {
@@ -383,7 +379,7 @@ function setupOutfitBuilder(node) {
         if (at >= 0) {
             state.selection.splice(at, 1);
         } else {
-            if (node.properties.autoResolve) {
+            if (node.properties[AUTO_KEY]) {
                 if (FULL_BODY.has(item.category)) {
                     state.selection = state.selection.filter((e) => !FULL_BODY.has(e.category) && !SPLIT_BODY.has(e.category));
                 } else if (SPLIT_BODY.has(item.category)) {
@@ -452,7 +448,7 @@ function setupOutfitBuilder(node) {
             chip.appendChild(x);
             chips.appendChild(chip);
         }
-        const msg = node.properties.autoResolve ? "" : conflictMessage();
+        const msg = node.properties[AUTO_KEY] ? "" : conflictMessage();
         warn.textContent = msg;
         warn.classList.toggle("ob-show", !!msg);
     }
@@ -710,44 +706,18 @@ function setupOutfitBuilder(node) {
     });
 
     // ---- lifecycle
-    node._obRefresh = () => {
+    function refresh() {
         state.selection = readSelection();
         syncControls();
         options.classList.toggle("ob-show", state.optionsOpen);
         renderChips();
         renderGrid();
         schedulePreview();
-    };
-
-    node.addDOMWidget("outfit_builder_ui", "outfit_builder", root, {
-        getMinHeight: () => 520,
-        hideOnZoom: false,
-    });
-    if (node.size[0] < 760) node.size[0] = 760;
-    if (node.size[1] < 640) node.size[1] = 640;
+    }
 
     syncControls();
     renderChips();
     loadCatalog();
     schedulePreview();
+    return { root, refresh };
 }
-
-app.registerExtension({
-    name: "PromptManager.OutfitBuilder",
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== NODE_NAME) return;
-        const onNodeCreated = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function () {
-            const result = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
-            injectStyles();
-            setupOutfitBuilder(this);
-            return result;
-        };
-        const onConfigure = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function () {
-            const result = onConfigure ? onConfigure.apply(this, arguments) : undefined;
-            if (this._obRefresh) this._obRefresh();
-            return result;
-        };
-    },
-});

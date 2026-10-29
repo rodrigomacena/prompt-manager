@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { createOutfitPanel, injectOutfitStyles } from "./outfit_panel.js";
 
 const NODE_NAME = "PromptManager";
 
@@ -246,6 +247,33 @@ const CSS_TEXT = `
     padding: 6px;
     background: rgba(0,0,0,0.15);
 }
+.pm-outfit {
+    overflow-anchor: none;
+    flex: 1.1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    padding: 6px;
+    background: rgba(0,0,0,0.15);
+    overflow: hidden;
+}
+.pm-outfit .ob-root { flex: 1; min-height: 0; padding: 0; background: transparent; border-radius: 0; }
+.pm-seg {
+    flex-shrink: 0;
+    max-height: 30%;
+    overflow-y: auto;
+    border: 1px dashed var(--border-color, #555);
+    border-left: 3px solid #5b8dee;
+    border-radius: 4px;
+    padding: 4px 6px;
+    background: rgba(255,255,255,0.03);
+}
+.pm-seg.pm-seg-outfit { border-left-color: #c9811a; }
+.pm-seg-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--descrip-text, #888); }
+.pm-seg-text { font-size: 11px; line-height: 1.45; color: var(--descrip-text, #aaa); white-space: pre-wrap; word-break: break-word; }
 .pm-preview-box {
     flex: 1;
     min-height: 60px;
@@ -765,6 +793,8 @@ function hideWidget(node, widget) {
     widget.options.surfaces = { canvas: "never", vueNode: "never", panel: "never" };
 }
 
+const MIN_NODE_WIDTH = 1300;
+
 function setupPromptManagerWidget(node) {
     const modeWidget = node.widgets.find((w) => w.name === "mode");
     const groupIdWidget = node.widgets.find((w) => w.name === "group_id");
@@ -773,6 +803,15 @@ function setupPromptManagerWidget(node) {
     const prefixWidget = node.widgets.find((w) => w.name === "prefix");
 
     [modeWidget, groupIdWidget, promptIdWidget, promptTextWidget, prefixWidget].forEach((w) => hideWidget(node, w));
+    const outfitWidgets = {
+        selection: node.widgets.find((w) => w.name === "outfit_selection"),
+        mode: node.widgets.find((w) => w.name === "outfit_mode"),
+        pronoun: node.widgets.find((w) => w.name === "outfit_pronoun"),
+        lead: node.widgets.find((w) => w.name === "outfit_lead"),
+        separator: node.widgets.find((w) => w.name === "outfit_separator"),
+    };
+    const hasOutfit = Object.values(outfitWidgets).every(Boolean);
+    if (hasOutfit) Object.values(outfitWidgets).forEach((w) => hideWidget(node, w));
 
     if (!node.properties) node.properties = {};
     if (node.properties.enrichInstructions === undefined) node.properties.enrichInstructions = "";
@@ -798,6 +837,9 @@ function setupPromptManagerWidget(node) {
         enrich: { loading: false, error: "", result: "" },
         enrichMode: "existing",
         previewOverride: null,
+        outfitText: "",
+        outfitRandom: false,
+        segs: null,
         img2prompt: {
             imageDataUrl: null,
             model: node.properties.img2promptModel || DEFAULT_VISION_MODEL,
@@ -811,6 +853,35 @@ function setupPromptManagerWidget(node) {
     const root = el("div", "pm-root");
     const body = el("div", "pm-body");
     root.appendChild(body);
+
+    // the Prompt box shows the prefix and the outfit around the editable text; this refreshes those two blocks
+    function updateSegments() {
+        const segs = state.segs;
+        if (!segs) return;
+        const prefix = (state.prefix || "").trim();
+        segs.prefix.style.display = prefix ? "" : "none";
+        segs.prefixText.textContent = prefix;
+        segs.outfit.style.display = state.outfitText ? "" : "none";
+        segs.outfitText.textContent = state.outfitText;
+        segs.outfitLabel.textContent = state.outfitRandom ? "Outfit 🎲 — random pick at every run (this is a preview)" : "Outfit";
+    }
+
+    let outfitPanel = null;
+    const outfitColumn = el("div", "pm-outfit");
+    if (hasOutfit) {
+        injectOutfitStyles();
+        outfitColumn.appendChild(el("div", "pm-preview-title", "Outfit Builder"));
+        outfitPanel = createOutfitPanel(node, outfitWidgets, {
+            autoKey: "outfitAutoResolve",
+            showOutput: false,
+            onPreview: (text, info) => {
+                state.outfitText = text;
+                state.outfitRandom = info.random;
+                updateSegments();
+            },
+        });
+        outfitColumn.appendChild(outfitPanel.root);
+    }
 
     function showModal({ message, defaultValue, mode }) {
         return new Promise((resolve) => {
@@ -1266,6 +1337,7 @@ function setupPromptManagerWidget(node) {
         state.img2prompt.model = node.properties.img2promptModel || DEFAULT_VISION_MODEL;
         state.img2prompt.instructions = node.properties.img2promptInstructions || "";
         render();
+        if (outfitPanel) outfitPanel.refresh();
     }
     node._pmRefreshFromWidgets = refreshFromWidgets;
 
@@ -1944,7 +2016,20 @@ function setupPromptManagerWidget(node) {
             savePromptBtn.disabled = !group || !textarea.value.trim();
         });
 
+        const prefixSeg = el("div", "pm-seg pm-seg-prefix");
+        const prefixLabel = el("div", "pm-seg-label", "Prefix");
+        const prefixText = el("div", "pm-seg-text");
+        prefixSeg.append(prefixLabel, prefixText);
+        const outfitSeg = el("div", "pm-seg pm-seg-outfit");
+        const outfitLabel = el("div", "pm-seg-label", "Outfit");
+        const outfitText = el("div", "pm-seg-text");
+        outfitSeg.append(outfitLabel, outfitText);
+        state.segs = { prefix: prefixSeg, prefixText, outfit: outfitSeg, outfitText, outfitLabel };
+        updateSegments();
+
+        preview.appendChild(prefixSeg);
         preview.appendChild(textarea);
+        preview.appendChild(outfitSeg);
         preview.appendChild(badge);
         preview.appendChild(replaceBtn);
         right.appendChild(preview);
@@ -2036,7 +2121,7 @@ function setupPromptManagerWidget(node) {
         return right;
     }
 
-    const SCROLL_SELECTOR = ".pm-main, .pm-content, .pm-right, .pm-img2prompt, .pm-enrich-box";
+    const SCROLL_SELECTOR = ".pm-main, .pm-content, .pm-right, .pm-img2prompt, .pm-enrich-box, .pm-outfit, .ob-grid, .ob-chips";
 
     function captureScroll() {
         const saved = [body.scrollTop, body.scrollLeft];
@@ -2158,6 +2243,7 @@ function setupPromptManagerWidget(node) {
             state.prefix = prefixInput.value;
             prefixWidget.value = state.prefix;
             fitPrefix();
+            updateSegments();
         });
         prefixRow.appendChild(prefixInput);
         content.appendChild(prefixRow);
@@ -2192,6 +2278,7 @@ function setupPromptManagerWidget(node) {
             content.appendChild(grid);
         }
         main.appendChild(content);
+        if (hasOutfit) main.appendChild(outfitColumn);
         main.appendChild(renderRightPanel(group, selectedPrompt));
 
         body.appendChild(main);
@@ -2237,7 +2324,7 @@ function setupPromptManagerWidget(node) {
         hideOnZoom: false,
     });
 
-    if (node.size[0] < 920) node.size[0] = 920;
+    if (node.size[0] < MIN_NODE_WIDTH) node.size[0] = MIN_NODE_WIDTH;
     if (node.size[1] < 560) node.size[1] = 560;
 
     syncWidgets();
@@ -2264,6 +2351,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure ? onConfigure.apply(this, arguments) : undefined;
             if (this._pmRefreshFromWidgets) this._pmRefreshFromWidgets();
+            if (this.size && this.size[0] < MIN_NODE_WIDTH) this.size[0] = MIN_NODE_WIDTH;
             return result;
         };
     },

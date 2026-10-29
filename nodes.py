@@ -36,9 +36,28 @@ class PromptManagerNode:
                 "prompt_text": ("STRING", {"default": "", "multiline": True}),
                 "prefix": ("STRING", {"default": "", "multiline": True}),
             },
+            "optional": {
+                "outfit_selection": ("STRING", {"default": "[]", "multiline": False}),
+                "outfit_mode": (MODES, {"default": "fixed"}),
+                "outfit_pronoun": (PRONOUNS, {"default": "She"}),
+                "outfit_lead": ("STRING", {"default": "", "multiline": False}),
+                "outfit_separator": (SEPARATORS, {"default": "space"}),
+            },
         }
 
-    def run(self, mode, group_id, prompt_id, prompt_text, prefix):
+    def run(
+        self,
+        mode,
+        group_id,
+        prompt_id,
+        prompt_text,
+        prefix,
+        outfit_selection="[]",
+        outfit_mode="fixed",
+        outfit_pronoun="She",
+        outfit_lead="",
+        outfit_separator="space",
+    ):
         db = storage.load_db()
         group = storage.get_group(db, group_id) if group_id else None
 
@@ -50,13 +69,31 @@ class PromptManagerNode:
         else:
             text = prompt_text
 
-        return (_combine(prefix, text),)
+        combined = _combine(prefix, text)
+        outfit = build_outfit(outfit_selection, outfit_mode, outfit_pronoun, outfit_lead)
+        if not outfit:  # nothing picked in the outfit column: the prompt is left exactly as it was
+            return (combined,)
+        return (combine(combined, outfit, outfit_separator),)
 
     @classmethod
-    def IS_CHANGED(cls, mode, group_id, prompt_id, prompt_text, prefix):
+    def IS_CHANGED(
+        cls,
+        mode,
+        group_id,
+        prompt_id,
+        prompt_text,
+        prefix,
+        outfit_selection="[]",
+        outfit_mode="fixed",
+        outfit_pronoun="She",
+        outfit_lead="",
+        outfit_separator="space",
+    ):
         if mode in (MODE_RANDOM, MODE_SEQUENTIAL):
             return float("nan")
-        return f"{group_id}:{prompt_id}:{prompt_text}:{prefix}"
+        if outfit_mode == "random" and outfit_selection not in ("", "[]"):
+            return float("nan")
+        return f"{group_id}:{prompt_id}:{prompt_text}:{prefix}:{outfit_selection}:{outfit_pronoun}:{outfit_lead}:{outfit_separator}"
 
 
 def _combine(prefix, text):
@@ -83,40 +120,6 @@ class ModelManagerNode:
 
     def run(self):
         return ()
-
-
-class OutfitBuilderNode:
-    """Pick clothing pieces in the UI; outputs a sentence such as "She is wearing a red dress and high heels."."""
-
-    CATEGORY = "utils/prompt"
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("outfit", "combined")
-    FUNCTION = "run"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "selection": ("STRING", {"default": "[]", "multiline": False}),
-                "mode": (MODES, {"default": "fixed"}),
-                "pronoun": (PRONOUNS, {"default": "She"}),
-                "lead": ("STRING", {"default": "", "multiline": False}),
-                "separator": (SEPARATORS, {"default": "space"}),
-            },
-            "optional": {
-                "prompt": ("STRING", {"forceInput": True}),
-            },
-        }
-
-    def run(self, selection, mode, pronoun, lead, separator, prompt=None):
-        outfit = build_outfit(selection, mode, pronoun, lead)
-        return (outfit, combine(prompt, outfit, separator))
-
-    @classmethod
-    def IS_CHANGED(cls, selection, mode, pronoun, lead, separator, prompt=None):
-        if mode == "random":
-            return float("nan")
-        return f"{selection}:{pronoun}:{lead}:{separator}:{prompt}"
 
 
 class InputManagerNode:
@@ -234,7 +237,6 @@ NODE_CLASS_MAPPINGS = {
     "ModelManager": ModelManagerNode,
     "InputManager": InputManagerNode,
     "ImageMonitor": ImageMonitorNode,
-    "OutfitBuilder": OutfitBuilderNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -242,5 +244,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ModelManager": "Model Manager",
     "InputManager": "Input Manager",
     "ImageMonitor": "Image Monitor",
-    "OutfitBuilder": "Outfit Builder",
 }
