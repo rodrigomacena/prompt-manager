@@ -757,12 +757,26 @@ function setupInputManagerWidget(node) {
         updatePinUi();
     }
 
+    // A list of two or more pictures only reaches the output in Multi-image mode. Whenever the selection holds two or more,
+    // Multi-image is switched on, so what the gallery highlights is always what is sent (it used to send only the first picture).
+    function enableMulti() {
+        if (state.multi) return;
+        state.multi = true;
+        node.properties.multi = true;
+        updateMultiUi();
+    }
+
     function setSelection(list, force) {
         if (state.locked && !force) {
             notifyLocked();
             return;
         }
         list = withPins(list);
+        if (list.length >= 2 && !state.multi) {
+            enableMulti();
+            list = withPins(list);
+            setStatus("Multi-image turned on: the selected pictures will be joined.", false);
+        }
         const primary = list[0] || "";
         if (primary !== state.selected || list.length >= 2) discardAllLayers();
         state.selectedList = list;
@@ -775,9 +789,16 @@ function setupInputManagerWidget(node) {
         updateLockUi();
     }
 
-    function syncImagesWidget() {
-        imagesWidget.value = JSON.stringify(state.multi && state.selectedList.length >= 2 ? state.selectedList : []);
+    function imagesValue() {
+        return JSON.stringify(state.selectedList.length >= 2 ? state.selectedList : []);
     }
+
+    function syncImagesWidget() {
+        imagesWidget.value = imagesValue();
+    }
+
+    // Used when the workflow is queued: even if the stored widget value went stale, the prompt carries the live selection.
+    imagesWidget.serializeValue = () => imagesValue();
 
     function select(path) {
         setSelection(path ? [path] : []);
@@ -1302,6 +1323,10 @@ function setupInputManagerWidget(node) {
         state.multi = multiBox.checked;
         node.properties.multi = state.multi;
         updateMultiUi();
+        if (!state.multi && state.selectedList.length > 1) {
+            setSelection(state.selectedList.slice(0, 1), true);
+            return;
+        }
         syncImagesWidget();
         updateSelectionClasses();
         renderPreview(true);
@@ -1404,6 +1429,10 @@ function setupInputManagerWidget(node) {
             if (Array.isArray(parsed)) joinedList = parsed.filter((x) => typeof x === "string");
         } catch (e) {
             joinedList = [];
+        }
+        if (joinedList.length >= 2 && !state.multi) {
+            state.multi = true;
+            node.properties.multi = true;
         }
         state.selectedList = joinedList.length >= 2 ? joinedList : state.selected ? [state.selected] : [];
         updateMultiUi();
