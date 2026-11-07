@@ -26,6 +26,7 @@ PRONOUNS = ["She", "He", "They", "(none)"]
 MODES = ["fixed", "random"]
 SEPARATORS = ["space", "new paragraph"]
 MAX_ENTRIES = 100
+_RNG = random.SystemRandom()  # immune to other nodes calling random.seed()
 
 
 def slugify(value: str) -> str:
@@ -259,7 +260,7 @@ class Catalog:
             if not entry["pin"]:
                 pools.setdefault(entry["category"], []).append(entry)
         for pool in pools.values():
-            chosen.append(pool[0] if first_only else random.choice(pool))
+            chosen.append(pool[0] if first_only else _RNG.choice(pool))
         return chosen
 
     def build(self, selection: Any, mode: str = "fixed", pronoun: str = "She", lead: str = "", first_only: bool = False) -> str:

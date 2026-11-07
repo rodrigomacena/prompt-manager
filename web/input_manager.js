@@ -103,6 +103,9 @@ const CSS_TEXT = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .im-pinchip-x { margin-left: 4px; opacity: 0.85; }
+.im-topbar { display: flex; align-items: center; gap: 8px; min-height: 24px; flex-shrink: 0; }
+.im-topbar .im-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--descrip-text, #999); font-size: 12px; }
+.im-root.im-collapsed > :not(.im-topbar) { display: none !important; }
 .im-root.im-min .im-grid { grid-template-columns: 1fr !important; gap: 2px; }
 .im-root.im-min .im-cell {
     aspect-ratio: auto; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-width: 1px; border-radius: 3px;
@@ -252,6 +255,7 @@ function setupInputManagerWidget(node) {
         multi: node.properties.multi === true,
         locked: node.properties.locked === true,
         minimized: node.properties.minimized === true,
+        collapsedBox: node.properties.collapsedBox === true,
         pinned: Array.isArray(node.properties.pinned) ? node.properties.pinned.filter((x) => typeof x === "string") : [],
         selectedList: [],
         layout: layoutWidget.value === "vertical" ? "vertical" : "horizontal",
@@ -267,6 +271,11 @@ function setupInputManagerWidget(node) {
     let loadToken = 0;
 
     const root = el("div", "im-root");
+    const topbar = el("div", "im-topbar");
+    const collapseBtn = el("button", "im-btn", "▾ Collapse");
+    const summary = el("div", "im-summary");
+    topbar.append(el("div", "im-title", "Input Manager"), collapseBtn, summary);
+    root.appendChild(topbar);
 
     const header = el("div", "im-header");
     header.appendChild(el("div", "im-title", "Input Manager"));
@@ -564,6 +573,11 @@ function setupInputManagerWidget(node) {
     }
 
     function renderPreview(force) {
+        if (state.collapsedBox) {
+            previewBox.innerHTML = "";
+            previewKey = "";
+            return;
+        }
         updateTools();
         const info = findImage(state.selected);
         const joinedKey = isJoined() ? `join:${state.layout}:${state.selectedList.map((x) => x + ":" + ((findImage(x) || {}).mtime || 0)).join("|")}` : "";
@@ -647,7 +661,18 @@ function setupInputManagerWidget(node) {
         return state.multi && state.selectedList.length >= 2;
     }
 
+    function updateSummary() {
+        const list = state.selectedList;
+        const names = list.map((x) => x.split("/").pop());
+        let text = "No picture selected";
+        if (names.length === 1) text = names[0];
+        else if (names.length > 1) text = `${names.length} pictures joined: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
+        summary.textContent = `${state.locked && list.length ? "🔒" : "🖼"} ${text}`;
+        summary.title = list.join("\n");
+    }
+
     function updateSelectionClasses() {
+        updateSummary();
         confirmingDelete = false;
         renderActions();
         for (const cell of grid.children) {
@@ -821,6 +846,7 @@ function setupInputManagerWidget(node) {
     function renderGrid() {
         grid.innerHTML = "";
         note.textContent = "";
+        if (state.collapsedBox) return;
         if (state.error) {
             grid.appendChild(el("div", "im-empty", state.error));
             return;
@@ -1368,6 +1394,36 @@ function setupInputManagerWidget(node) {
         if (state.selected && !keep && !state.locked) select("");
         await loadImages();
     });
+    const COLLAPSED_MIN_HEIGHT = 36;
+    function applyCollapsedBox() {
+        root.classList.toggle("im-collapsed", state.collapsedBox);
+        collapseBtn.textContent = state.collapsedBox ? "▸ Expand" : "▾ Collapse";
+        collapseBtn.title = state.collapsedBox
+            ? "Show the gallery and the preview again"
+            : "Collapse the whole box to one line (no thumbnails or preview are loaded), for a light canvas on a slow device or iPad";
+        updateSummary();
+    }
+    collapseBtn.addEventListener("click", () => {
+        state.collapsedBox = !state.collapsedBox;
+        node.properties.collapsedBox = state.collapsedBox;
+        if (state.collapsedBox) node.properties.expandedHeight = node.size[1];
+        applyCollapsedBox();
+        if (state.collapsedBox) {
+            grid.innerHTML = "";
+            previewBox.innerHTML = "";
+            previewKey = "";
+            const min = node.computeSize ? node.computeSize()[1] : 120;
+            if (node.setSize) node.setSize([node.size[0], min]);
+        } else {
+            const back = Math.max(Number(node.properties.expandedHeight) || 0, 540);
+            if (node.setSize) node.setSize([node.size[0], back]);
+            renderGrid();
+            previewKey = "";
+            renderPreview(true);
+        }
+        if (app.canvas) app.canvas.setDirty(true, true);
+    });
+
     function applyMinimized() {
         const on = state.minimized;
         root.classList.toggle("im-min", on);
@@ -1396,6 +1452,7 @@ function setupInputManagerWidget(node) {
     });
     applyBlur();
     applyMinimized();
+    applyCollapsedBox();
 
     slider.addEventListener("input", () => {
         state.thumbSize = Number(slider.value);
@@ -1408,7 +1465,7 @@ function setupInputManagerWidget(node) {
     });
 
     node.addDOMWidget("input_manager_ui", "input_manager", root, {
-        getMinHeight: () => 440,
+        getMinHeight: () => (state.collapsedBox ? COLLAPSED_MIN_HEIGHT : 440),
         hideOnZoom: false,
     });
     if (node.size[0] < 900) node.size[0] = 900;
@@ -1420,6 +1477,7 @@ function setupInputManagerWidget(node) {
         state.multi = node.properties.multi === true;
         state.locked = node.properties.locked === true;
         state.minimized = node.properties.minimized === true;
+        state.collapsedBox = node.properties.collapsedBox === true;
         applyMinimized();
         state.pinned = Array.isArray(node.properties.pinned) ? node.properties.pinned.filter((x) => typeof x === "string") : [];
         state.layout = layoutWidget.value === "vertical" ? "vertical" : "horizontal";
@@ -1436,6 +1494,7 @@ function setupInputManagerWidget(node) {
         }
         state.selectedList = joinedList.length >= 2 ? joinedList : state.selected ? [state.selected] : [];
         updateMultiUi();
+        applyCollapsedBox();
         layers.mask.id = maskWidget.value || "";
         layers.keep.id = keepWidget.value || "";
         state.brush = Number(node.properties.brushSize) || 30;

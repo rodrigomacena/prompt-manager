@@ -1,5 +1,7 @@
+import logging
 import os
 import random
+import uuid
 
 from . import storage
 from .image_monitor import push_images
@@ -17,6 +19,17 @@ from .input_manager import (
     resolve_image,
     stitch_images,
 )
+
+# Own random generator: other custom nodes sometimes call random.seed() with a fixed value, which would make the
+# global generator (and so every "random" pick here) repeat itself. SystemRandom cannot be seeded.
+_RNG = random.SystemRandom()
+_log = logging.getLogger("PromptManager")
+
+
+def _always_changed():
+    """IS_CHANGED value for nodes that must run every time: unique per call, so no ComfyUI version can cache it."""
+    return uuid.uuid4().hex
+
 
 MODE_FIXED = "fixed"
 MODE_RANDOM = "random"
@@ -91,7 +104,12 @@ class PromptManagerNode:
         group = storage.get_group(db, group_id) if group_id else None
 
         if mode == MODE_RANDOM:
-            text = random.choice(group["prompts"])["text"] if group and group["prompts"] else prompt_text
+            if group and group["prompts"]:
+                picked = _RNG.choice(group["prompts"])
+                text = picked["text"]
+                _log.info("random prompt %s of %d in group '%s'", picked["id"][:8], len(group["prompts"]), group.get("name", ""))
+            else:
+                text = prompt_text
         elif mode == MODE_SEQUENTIAL:
             nxt = storage.get_next_sequential(group_id) if group and group["prompts"] else None
             text = nxt["text"] if nxt else prompt_text
@@ -142,7 +160,7 @@ class PromptManagerNode:
         light_separator="space",
     ):
         if mode in (MODE_RANDOM, MODE_SEQUENTIAL):
-            return float("nan")
+            return _always_changed()
         for column_mode, column_selection in (
             (outfit_mode, outfit_selection),
             (pose_mode, pose_selection),
@@ -150,7 +168,7 @@ class PromptManagerNode:
             (light_mode, light_selection),
         ):
             if column_mode == "random" and column_selection not in ("", "[]"):
-                return float("nan")
+                return _always_changed()
         return (
             f"{group_id}:{prompt_id}:{prompt_text}:{prefix}:{outfit_selection}:{outfit_pronoun}:{outfit_lead}:{outfit_separator}"
             f":{pose_selection}:{pose_pronoun}:{pose_lead}:{pose_separator}"
